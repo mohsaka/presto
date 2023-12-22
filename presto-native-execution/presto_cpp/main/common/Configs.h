@@ -298,6 +298,13 @@ class SystemConfig : public ConfigBase {
   /// cache entries.
   static constexpr std::string_view kCacheVeloxTtlCheckInterval{
       "cache.velox.ttl-check-interval"};
+
+  static constexpr std::string_view kEnableRuntimeStatsCollection{
+      "metrics.enable-runtime-stats-collection"};
+
+  static constexpr std::string_view kUseMmapArena{"use-mmap-arena"};
+  static constexpr std::string_view kMmapArenaCapacityRatio{
+      "mmap-arena-capacity-ratio"};
   static constexpr std::string_view kUseMmapAllocator{"use-mmap-allocator"};
 
   /// Specifies the memory arbitrator kind. If it is empty, then there is no
@@ -655,6 +662,8 @@ class SystemConfig : public ConfigBase {
   std::chrono::duration<double> cacheVeloxTtlThreshold() const;
 
   std::chrono::duration<double> cacheVeloxTtlCheckInterval() const;
+
+  bool enableRuntimeStatsCollection() const;
 };
 
 /// Provides access to node properties defined in node.properties file.

@@ -591,6 +591,10 @@ std::chrono::duration<double> SystemConfig::cacheVeloxTtlCheckInterval() const {
       optionalProperty(kCacheVeloxTtlCheckInterval).value());
 }
 
+bool SystemConfig::enableRuntimeStatsCollection() const {
+  return optionalProperty<bool>(kEnableRuntimeStatsCollection).value();
+}
+
 NodeConfig::NodeConfig() {
   registeredProps_ =
       std::unordered_map<std::string, folly::Optional<std::string>>{
