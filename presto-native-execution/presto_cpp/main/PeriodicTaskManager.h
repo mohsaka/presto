@@ -134,6 +134,7 @@ class PeriodicTaskManager {
   int64_t lastMemoryCacheEvictionChecks_{0};
   int64_t lastMemoryCacheStalls_{0};
   int64_t lastMemoryCacheAllocClocks_{0};
+  int64_t lastMemoryCacheAgedOuts_{0};
 
   // Operating system related stats.
   int64_t lastUserCpuTimeUs_{0};
@@ -143,9 +144,7 @@ class PeriodicTaskManager {
   int64_t lastVoluntaryContextSwitches_{0};
   int64_t lastForcedContextSwitches_{0};
   // Renabled this after update velox.
-#if 0
-  velox::exec::SpillStats lastSpillStats_;
-#endif
+  velox::common::SpillStats lastSpillStats_;
   velox::memory::MemoryArbitrator::Stats lastArbitratorStats_;
 };
 

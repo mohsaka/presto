@@ -27,16 +27,18 @@
 #include "velox/expression/Expr.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
-#include "presto_cpp/main/operators/BroadcastWrite.h"
-#include "presto_cpp/main/operators/PartitionAndSerialize.h"
-#include "presto_cpp/main/operators/ShuffleWrite.h"
-#include "presto_cpp/main/operators/ShuffleRead.h"
-#include <velox/core/Expressions.h>
+#include "velox/core/Expressions.h"
 #include "velox/common/compression/Compression.h"
 // clang-format on
 
 #include <folly/String.h>
 #include <folly/container/F14Set.h>
+
+#include "presto_cpp/main/operators/BroadcastWrite.h"
+#include "presto_cpp/main/operators/PartitionAndSerialize.h"
+#include "presto_cpp/main/operators/ShuffleRead.h"
+#include "presto_cpp/main/operators/ShuffleWrite.h"
+#include "presto_cpp/main/types/TypeParser.h"
 
 using namespace facebook::velox;
 using namespace facebook::velox::exec;
@@ -1162,14 +1164,6 @@ core::WindowNode::BoundType toVeloxBoundType(protocol::BoundType boundType) {
       VELOX_UNSUPPORTED("Unsupported window bound type: {}", boundType);
   }
 }
-
-// Stores partitioned output channels.
-// For each 'kConstantChannel', there is an entry in 'constValues'.
-struct PartitionedOutputChannels {
-  std::vector<column_index_t> channels;
-  // Each vector holding a single value for a constant channel.
-  std::vector<VectorPtr> constValues;
-};
 
 core::LocalPartitionNode::Type toLocalExchangeType(
     protocol::ExchangeNodeType type) {

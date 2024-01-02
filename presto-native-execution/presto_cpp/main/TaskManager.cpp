@@ -38,8 +38,8 @@ constexpr uint32_t kMaxConcurrentLifespans{16};
 
 namespace {
 // If spilling is enabled and the given Task can spill, then this helper
-// generates the spilling directory path for the Task, creates that directory in
-// the file system and sets the path to it to the Task.
+// generates the spilling directory path for the Task, and sets the path to it
+// in the Task.
 static void maybeSetupTaskSpillDirectory(
     const core::PlanFragment& planFragment,
     exec::Task& execTask,
@@ -59,12 +59,7 @@ static void maybeSetupTaskSpillDirectory(
       execTask.queryCtx()->queryId(),
       execTask.taskId(),
       includeNodeInSpillPath);
-  // Create folder for the task spilling.
-  auto fileSystem =
-      velox::filesystems::getFileSystem(taskSpillDirPath, nullptr);
-  VELOX_CHECK_NOT_NULL(fileSystem, "File System is null!");
-  fileSystem->mkdir(taskSpillDirPath);
-  execTask.setSpillDirectory(taskSpillDirPath);
+  execTask.setSpillDirectory(taskSpillDirPath, /*alreadyCreated=*/false);
 }
 
 // Keep outstanding Promises in RequestHandler's state itself.
@@ -85,7 +80,7 @@ void keepPromiseAlive(
       [promiseHolder]() mutable { promiseHolder.reset(); });
 }
 
-std::unique_ptr<Result> createTimeOutResult(long token) {
+std::unique_ptr<Result> createEmptyResult(long token) {
   auto result = std::make_unique<Result>();
   result->sequence = result->nextSequence = token;
   result->data = folly::IOBuf::create(0);
@@ -156,7 +151,7 @@ void getData(
 
         promiseHolder->promise.setValue(std::move(result));
 
-        REPORT_ADD_STAT_VALUE(
+        RECORD_METRIC_VALUE(
             kCounterPartitionedOutputBufferGetDataLatencyMs,
             getCurrentTimeMs() - startMs);
       });
@@ -165,7 +160,7 @@ void getData(
     // Buffer was erased for current TaskId.
     VLOG(1) << "Task " << taskId << ", buffer " << destination << ", sequence "
             << token << ", buffer not found.";
-    promiseHolder->promise.setValue(std::move(createTimeOutResult(token)));
+    promiseHolder->promise.setValue(std::move(createEmptyResult(token)));
   }
 }
 
@@ -709,11 +704,11 @@ size_t TaskManager::cleanOldTasks() {
   if (zombiePrestoTaskCounts.numTotal > 0) {
     zombiePrestoTaskCounts.logZombieTaskStatus("PrestoTask");
   }
-  REPORT_ADD_STAT_VALUE(
+  RECORD_METRIC_VALUE(
       kCounterNumZombieVeloxTasks, zombieVeloxTaskCounts.numTotal);
-  REPORT_ADD_STAT_VALUE(
+  RECORD_METRIC_VALUE(
       kCounterNumZombiePrestoTasks, zombiePrestoTaskCounts.numTotal);
-  REPORT_ADD_STAT_VALUE(
+  RECORD_METRIC_VALUE(
       kCounterNumTasksWithStuckOperator, numTasksWithStuckOperator);
   return taskIdsToClean.size();
 }
@@ -805,41 +800,24 @@ folly::Future<std::unique_ptr<Result>> TaskManager::getResults(
   // with incomplete empty pages.
   promiseHolder->atDestruction(
       [token](folly::Promise<std::unique_ptr<Result>> promise) {
-        auto result = std::make_unique<Result>();
-        result->sequence = token;
-        result->nextSequence = token;
-        result->complete = false;
-        result->data = folly::IOBuf::copyBuffer("");
-        promise.setValue(std::move(result));
+        promise.setValue(createEmptyResult(token));
       });
 
-  auto timeoutFn = [this, token]() { return createTimeOutResult(token); };
+  auto timeoutFn = [this, token]() { return createEmptyResult(token); };
 
   try {
     auto prestoTask = findOrCreateTask(taskId);
 
     // If the task is aborted or failed, then return an error.
     if (prestoTask->info.taskStatus.state == protocol::TaskState::ABORTED) {
-      VELOX_USER_FAIL("Calling getResult() on a aborted task: {}", taskId);
+      LOG(WARNING) << "Calling getResult() on a aborted task: " << taskId;
+      promiseHolder->promise.setValue(createEmptyResult(token));
+      return std::move(future).via(httpSrvCpuExecutor_);
     }
     if (prestoTask->error != nullptr) {
-      try {
-        std::rethrow_exception(prestoTask->error);
-      } catch (const VeloxException& e) {
-        VELOX_USER_FAIL(
-            "Calling getResult() on a failed PrestoTask: {}. PrestoTask failure reason: {}",
-            taskId,
-            e.what());
-      } catch (const std::exception& e) {
-        VELOX_USER_FAIL(
-            "Calling getResult() on a failed PrestoTask: {}. PrestoTask failure reason: {}",
-            taskId,
-            e.what());
-      } catch (...) {
-        VELOX_USER_FAIL(
-            "Calling getResult() on a failed PrestoTask: {}. PrestoTask failure reason: UNKNOWN",
-            taskId);
-      }
+      LOG(WARNING) << "Calling getResult() on a failed PrestoTask: " << taskId;
+      promiseHolder->promise.setValue(createEmptyResult(token));
+      return std::move(future).via(httpSrvCpuExecutor_);
     }
 
     for (;;) {

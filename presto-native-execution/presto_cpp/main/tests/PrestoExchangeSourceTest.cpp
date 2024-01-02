@@ -390,17 +390,20 @@ struct Params {
 
 class PrestoExchangeSourceTest : public ::testing::TestWithParam<Params> {
  public:
-  void SetUp() override {
-    pool_ = memory::addDefaultLeafMemoryPool();
+  static void SetUpTestCase() {
+    MemoryManagerOptions options;
+    options.allocatorCapacity = 1L << 30;
+    options.useMmapAllocator = true;
+    MemoryManager::testingSetInstance(options);
+  }
 
-    memory::MmapAllocator::Options options;
-    options.capacity = 1L << 30;
-    allocator_ = std::make_unique<memory::MmapAllocator>(options);
+  void SetUp() override {
+    pool_ = memory::deprecatedAddDefaultLeafMemoryPool();
+
     exchangeCpuExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
         GetParam().exchangeCpuThreadPoolSize);
     exchangeIoExecutor_ = std::make_shared<folly::IOThreadPoolExecutor>(
         GetParam().exchangeIoThreadPoolSize);
-    memory::MemoryAllocator::setDefaultInstance(allocator_.get());
     TestValue::enable();
 
     filesystems::registerLocalFileSystem();
@@ -417,7 +420,6 @@ class PrestoExchangeSourceTest : public ::testing::TestWithParam<Params> {
   }
 
   void TearDown() override {
-    memory::MemoryAllocator::setDefaultInstance(nullptr);
     TestValue::disable();
   }
 
@@ -441,7 +443,7 @@ class PrestoExchangeSourceTest : public ::testing::TestWithParam<Params> {
         pool != nullptr ? pool : pool_.get(),
         exchangeCpuExecutor_.get(),
         exchangeIoExecutor_.get(),
-        connectionPools_);
+        &connectionPools_);
   }
 
   void requestNextPage(
@@ -455,7 +457,6 @@ class PrestoExchangeSourceTest : public ::testing::TestWithParam<Params> {
   }
 
   std::shared_ptr<memory::MemoryPool> pool_;
-  std::unique_ptr<memory::MemoryAllocator> allocator_;
   std::shared_ptr<folly::CPUThreadPoolExecutor> exchangeCpuExecutor_;
   std::shared_ptr<folly::IOThreadPoolExecutor> exchangeIoExecutor_;
   ConnectionPools connectionPools_;
@@ -767,7 +768,7 @@ DEBUG_ONLY_TEST_P(
   for (bool persistentError : {false, true}) {
     SCOPED_TRACE(fmt::format("persistentError: {}", persistentError));
 
-    auto rootPool = defaultMemoryManager().addRootPool("", memoryCapBytes);
+    auto rootPool = memoryManager()->addRootPool("", memoryCapBytes);
     const std::string leafPoolName("exceedingMemoryCapacityForHttpResponse");
     auto leafPool = rootPool->addLeafChild(leafPoolName);
 
@@ -830,7 +831,7 @@ TEST_P(PrestoExchangeSourceTest, memoryAllocationAndUsageCheck) {
     SCOPED_TRACE(fmt::format("resetPeak {}", resetPeak));
 
     PrestoExchangeSource::testingClearMemoryUsage();
-    auto rootPool = defaultMemoryManager().addRootPool();
+    auto rootPool = memory::MemoryManager::getInstance()->addRootPool();
     auto leafPool = rootPool->addLeafChild("memoryAllocationAndUsageCheck");
 
     const bool useHttps = GetParam().useHttps;

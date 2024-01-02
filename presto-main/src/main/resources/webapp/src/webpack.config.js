@@ -4,7 +4,9 @@ const path = require('node:path');
 const TerserPlugin = require("terser-webpack-plugin");
 
 module.exports = (env) => {
-    var mode = env.production ? 'production' : 'development';
+    const mode = env.production ? 'production' : 'development';
+    const apiHost = env.apiHost || 'localhost';
+    const apiPort = env.apiPort || '8080';
     return {
         entry: {
             'index': path.join(__dirname, 'index.jsx'),
@@ -14,6 +16,7 @@ module.exports = (env) => {
             'stage': path.join(__dirname, 'stage.jsx'),
             'worker': path.join(__dirname, 'worker.jsx'),
             'timeline': path.join(__dirname, 'timeline.jsx'),
+            'res_groups': path.join(__dirname, 'res_groups.jsx'),
         },
         externals: {
             // substitutes `require('vis-timeline/standalone')` to `global.vis`
@@ -59,5 +62,13 @@ module.exports = (env) => {
               }),
             , '...'],
           },
+        devServer: {
+            static: {
+                directory: path.join(__dirname, '..'),
+              },
+            proxy: {
+                '/v1': `http://${apiHost}:${apiPort}`,
+            },
+        },
     };
 };

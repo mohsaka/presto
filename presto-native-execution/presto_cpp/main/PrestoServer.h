@@ -85,9 +85,11 @@ class PrestoServer {
   }
 
  protected:
-  /// Hook for derived PrestoServer implementations to add additional periodic
-  /// tasks.
+  /// Hook for derived PrestoServer implementations to add/stop additional
+  /// periodic tasks.
   virtual void addAdditionalPeriodicTasks(){};
+
+  virtual void stopAdditionalPeriodicTasks(){};
 
   virtual void initializeCoordinatorDiscoverer();
 
@@ -189,10 +191,7 @@ class PrestoServer {
   // Executor for spilling.
   std::shared_ptr<folly::CPUThreadPoolExecutor> spillerExecutor_;
 
-  ConnectionPools exchangeSourceConnectionPools_;
-
-  // Instance of MemoryAllocator used for all query memory allocations.
-  std::shared_ptr<velox::memory::MemoryAllocator> allocator_;
+  std::unique_ptr<ConnectionPools> exchangeSourceConnectionPools_;
 
   // If not null,  the instance of AsyncDataCache used for in-memory file cache.
   std::shared_ptr<velox::cache::AsyncDataCache> cache_;

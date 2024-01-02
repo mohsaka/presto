@@ -54,6 +54,7 @@ void ConfigBase::initialize(const std::string& filePath) {
   auto values = util::readConfig(fs::path(filePath));
   filePath_ = filePath;
   checkRegisteredProperties(values);
+  updateLoadedValues(values);
 
   bool mutableConfig{false};
   auto it = values.find(std::string(kMutableConfig));
@@ -66,6 +67,12 @@ void ConfigBase::initialize(const std::string& filePath) {
   } else {
     config_ = std::make_unique<velox::core::MemConfig>(values);
   };
+}
+
+std::string ConfigBase::capacityPropertyAsBytesString(
+    std::string_view propertyName) const {
+  return folly::to<std::string>(toCapacity(
+      optionalProperty(propertyName).value(), velox::core::CapacityUnit::BYTE));
 }
 
 bool ConfigBase::registerProperty(
@@ -137,8 +144,8 @@ SystemConfig::SystemConfig() {
           NONE_PROP(kDiscoveryUri),
           NUM_PROP(kMaxDriversPerTask, 16),
           NUM_PROP(kConcurrentLifespansPerTask, 1),
-          NUM_PROP(kHttpExecThreads, std::thread::hardware_concurrency()),
-          NUM_PROP(kNumHttpCpuThreads, std::thread::hardware_concurrency()),
+          NUM_PROP(kHttpServerNumIoThreadsHwMultiplier, 1.0),
+          NUM_PROP(kHttpServerNumCpuThreadsHwMultiplier, 1.0),
           NONE_PROP(kHttpServerHttpsPort),
           STR_PROP(kHttpServerHttpsEnabled, "false"),
           STR_PROP(
@@ -147,16 +154,21 @@ SystemConfig::SystemConfig() {
           NONE_PROP(kHttpsCertPath),
           NONE_PROP(kHttpsKeyPath),
           NONE_PROP(kHttpsClientCertAndKeyPath),
-          NUM_PROP(kNumIoThreads, 30),
-          NUM_PROP(kNumConnectorIoThreads, 30),
-          NUM_PROP(kNumQueryThreads, std::thread::hardware_concurrency() * 4),
-          NUM_PROP(kNumSpillThreads, std::thread::hardware_concurrency()),
+          NUM_PROP(kExchangeHttpClientNumIoThreadsHwMultiplier, 1.0),
+          NUM_PROP(kConnectorNumIoThreadsHwMultiplier, 1.0),
+          NUM_PROP(kDriverNumCpuThreadsHwMultiplier, 4.0),
+          NUM_PROP(kSpillerNumCpuThreadsHwMultiplier, 1.0),
+          STR_PROP(kSpillerFileCreateConfig, ""),
           NONE_PROP(kSpillerSpillPath),
           NUM_PROP(kShutdownOnsetSec, 10),
           NUM_PROP(kSystemMemoryGb, 40),
           STR_PROP(kSystemMemPushbackEnabled, "false"),
           NUM_PROP(kSystemMemLimitGb, 55),
           NUM_PROP(kSystemMemShrinkGb, 8),
+          STR_PROP(kMallocMemHeapDumpEnabled, "false"),
+          NUM_PROP(kMallocHeapDumpThresholdGb, 20),
+          NUM_PROP(kMallocMemMinHeapDumpInterval, 10),
+          NUM_PROP(kMallocMemMaxHeapDumpFiles, 5),
           STR_PROP(kAsyncDataCacheEnabled, "true"),
           NUM_PROP(kAsyncCacheSsdGb, 0),
           NUM_PROP(kAsyncCacheSsdCheckpointGb, 0),
@@ -190,6 +202,7 @@ SystemConfig::SystemConfig() {
           STR_PROP(kExchangeMaxErrorDuration, "3m"),
           STR_PROP(kExchangeRequestTimeout, "10s"),
           STR_PROP(kExchangeConnectTimeout, "20s"),
+          BOOL_PROP(kExchangeEnableConnectionPool, false),
           BOOL_PROP(kExchangeImmediateBufferTransfer, true),
           NUM_PROP(kTaskRunTimeSliceMicros, 50'000),
           BOOL_PROP(kIncludeNodeInSpillPath, false),
@@ -199,6 +212,11 @@ SystemConfig::SystemConfig() {
           STR_PROP(kInternalCommunicationSharedSecret, ""),
           NUM_PROP(kInternalCommunicationJwtExpirationSeconds, 300),
           BOOL_PROP(kUseLegacyArrayAgg, false),
+          STR_PROP(kSinkMaxBufferSize, "32MB"),
+          STR_PROP(kDriverMaxPagePartitioningBufferSize, "32MB"),
+          BOOL_PROP(kCacheVeloxTtlEnabled, false),
+          STR_PROP(kCacheVeloxTtlThreshold, "2d"),
+          STR_PROP(kCacheVeloxTtlCheckInterval, "1h"),
       };
 }
 
@@ -304,28 +322,33 @@ int32_t SystemConfig::concurrentLifespansPerTask() const {
   return optionalProperty<int32_t>(kConcurrentLifespansPerTask).value();
 }
 
-int32_t SystemConfig::httpExecThreads() const {
-  return optionalProperty<int32_t>(kHttpExecThreads).value();
+double SystemConfig::httpServerNumIoThreadsHwMultiplier() const {
+  return optionalProperty<double>(kHttpServerNumIoThreadsHwMultiplier).value();
 }
 
-int32_t SystemConfig::numHttpCpuThreads() const {
-  return optionalProperty<int32_t>(kNumHttpCpuThreads).value();
+double SystemConfig::httpServerNumCpuThreadsHwMultiplier() const {
+  return optionalProperty<double>(kHttpServerNumCpuThreadsHwMultiplier).value();
 }
 
-int32_t SystemConfig::numIoThreads() const {
-  return optionalProperty<int32_t>(kNumIoThreads).value();
+double SystemConfig::exchangeHttpClientNumIoThreadsHwMultiplier() const {
+  return optionalProperty<double>(kExchangeHttpClientNumIoThreadsHwMultiplier)
+      .value();
 }
 
-int32_t SystemConfig::numConnectorIoThreads() const {
-  return optionalProperty<int32_t>(kNumConnectorIoThreads).value();
+double SystemConfig::connectorNumIoThreadsHwMultiplier() const {
+  return optionalProperty<double>(kConnectorNumIoThreadsHwMultiplier).value();
 }
 
-int32_t SystemConfig::numQueryThreads() const {
-  return optionalProperty<int32_t>(kNumQueryThreads).value();
+double SystemConfig::driverNumCpuThreadsHwMultiplier() const {
+  return optionalProperty<double>(kDriverNumCpuThreadsHwMultiplier).value();
 }
 
-int32_t SystemConfig::numSpillThreads() const {
-  return optionalProperty<int32_t>(kNumSpillThreads).value();
+double SystemConfig::spillerNumCpuThreadsHwMultiplier() const {
+  return optionalProperty<double>(kSpillerNumCpuThreadsHwMultiplier).value();
+}
+
+std::string SystemConfig::spillerFileCreateConfig() const {
+  return optionalProperty<std::string>(kSpillerFileCreateConfig).value();
 }
 
 folly::Optional<std::string> SystemConfig::spillerSpillPath() const {
@@ -350,6 +373,22 @@ uint32_t SystemConfig::systemMemShrinkGb() const {
 
 bool SystemConfig::systemMemPushbackEnabled() const {
   return optionalProperty<bool>(kSystemMemPushbackEnabled).value();
+}
+
+bool SystemConfig::mallocMemHeapDumpEnabled() const {
+  return optionalProperty<bool>(kMallocMemHeapDumpEnabled).value();
+}
+
+uint32_t SystemConfig::mallocHeapDumpThresholdGb() const {
+  return optionalProperty<uint32_t>(kMallocHeapDumpThresholdGb).value();
+}
+
+uint32_t SystemConfig::mallocMemMinHeapDumpInterval() const {
+  return optionalProperty<uint32_t>(kMallocMemMinHeapDumpInterval).value();
+}
+
+uint32_t SystemConfig::mallocMemMaxHeapDumpFiles() const {
+  return optionalProperty<uint32_t>(kMallocMemMaxHeapDumpFiles).value();
 }
 
 uint64_t SystemConfig::asyncCacheSsdGb() const {
@@ -494,6 +533,10 @@ std::chrono::duration<double> SystemConfig::exchangeConnectTimeoutMs() const {
       optionalProperty(kExchangeConnectTimeout).value());
 }
 
+bool SystemConfig::exchangeEnableConnectionPool() const {
+  return optionalProperty<bool>(kExchangeEnableConnectionPool).value();
+}
+
 bool SystemConfig::exchangeImmediateBufferTransfer() const {
   return optionalProperty<bool>(kExchangeImmediateBufferTransfer).value();
 }
@@ -531,6 +574,20 @@ int32_t SystemConfig::internalCommunicationJwtExpirationSeconds() const {
 
 bool SystemConfig::useLegacyArrayAgg() const {
   return optionalProperty<bool>(kUseLegacyArrayAgg).value();
+}
+
+bool SystemConfig::cacheVeloxTtlEnabled() const {
+  return optionalProperty<bool>(kCacheVeloxTtlEnabled).value();
+}
+
+std::chrono::duration<double> SystemConfig::cacheVeloxTtlThreshold() const {
+  return velox::core::toDuration(
+      optionalProperty(kCacheVeloxTtlThreshold).value());
+}
+
+std::chrono::duration<double> SystemConfig::cacheVeloxTtlCheckInterval() const {
+  return velox::core::toDuration(
+      optionalProperty(kCacheVeloxTtlCheckInterval).value());
 }
 
 NodeConfig::NodeConfig() {
@@ -682,8 +739,13 @@ BaseVeloxQueryConfig::BaseVeloxQueryConfig() {
               QueryConfig::kSpillableReservationGrowthPct,
               c.spillableReservationGrowthPct()),
           BOOL_PROP(
-              QueryConfig::kSparkLegacySizeOfNull, c.sparkLegacySizeOfNull())};
-  update(*SystemConfig::instance());
+              QueryConfig::kSparkLegacySizeOfNull, c.sparkLegacySizeOfNull()),
+          BOOL_PROP(
+              QueryConfig::kPrestoArrayAggIgnoreNulls,
+              c.prestoArrayAggIgnoreNulls()),
+          NUM_PROP(
+              QueryConfig::kMaxArbitraryBufferSize, c.maxArbitraryBufferSize()),
+      };
 }
 
 BaseVeloxQueryConfig* BaseVeloxQueryConfig::instance() {
@@ -692,14 +754,34 @@ BaseVeloxQueryConfig* BaseVeloxQueryConfig::instance() {
   return instance.get();
 }
 
-void BaseVeloxQueryConfig::initialize(const std::string& filePath) {
-  ConfigBase::initialize(filePath);
-  update(*SystemConfig::instance());
-}
+void BaseVeloxQueryConfig::updateLoadedValues(
+    std::unordered_map<std::string, std::string>& values) const {
+  // Update velox config with values from presto system config.
+  auto systemConfig = SystemConfig::instance();
 
-void BaseVeloxQueryConfig::update(const SystemConfig& systemConfig) {
-  registeredProps_[velox::core::QueryConfig::kPrestoArrayAggIgnoreNulls] =
-      bool2String(systemConfig.useLegacyArrayAgg());
+  using namespace velox::core;
+  const std::unordered_map<std::string, std::string> updatedValues{
+      {QueryConfig::kPrestoArrayAggIgnoreNulls,
+       bool2String(systemConfig->useLegacyArrayAgg())},
+      {QueryConfig::kMaxArbitraryBufferSize,
+       systemConfig->capacityPropertyAsBytesString(
+           SystemConfig::kSinkMaxBufferSize)},
+      {QueryConfig::kMaxPartitionedOutputBufferSize,
+       systemConfig->capacityPropertyAsBytesString(
+           SystemConfig::kDriverMaxPagePartitioningBufferSize)},
+  };
+
+  std::stringstream updated;
+  for (const auto& pair : updatedValues) {
+    updated << "  " << pair.first << "=" << pair.second << "\n";
+    values[pair.first] = pair.second;
+  }
+  auto str = updated.str();
+  if (!str.empty()) {
+    PRESTO_STARTUP_LOG(INFO)
+        << "Updated in '" << filePath_ << "' from SystemProperties:\n"
+        << str;
+  }
 }
 
 } // namespace facebook::presto

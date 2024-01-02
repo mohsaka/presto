@@ -29,9 +29,11 @@ import com.facebook.presto.spiller.NodeSpillConfig;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationIfToFilterRewriteStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationPartitioningMergingStrategy;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.CteMaterializationStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinNotNullInferenceStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.LeftJoinArrayContainsToInnerJoinStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartialAggregationStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartialMergePushdownStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartitioningPrecisionStrategy;
@@ -186,6 +188,7 @@ public final class SystemSessionProperties
     public static final String MAX_DRIVERS_PER_TASK = "max_drivers_per_task";
     public static final String MAX_TASKS_PER_STAGE = "max_tasks_per_stage";
     public static final String DEFAULT_FILTER_FACTOR_ENABLED = "default_filter_factor_enabled";
+    public static final String CTE_MATERIALIZATION_STRATEGY = "cte_materialization_strategy";
     public static final String DEFAULT_JOIN_SELECTIVITY_COEFFICIENT = "default_join_selectivity_coefficient";
     public static final String PUSH_LIMIT_THROUGH_OUTER_JOIN = "push_limit_through_outer_join";
     public static final String OPTIMIZE_CONSTANT_GROUPING_KEYS = "optimize_constant_grouping_keys";
@@ -287,6 +290,7 @@ public final class SystemSessionProperties
     public static final String REWRITE_CROSS_JOIN_OR_TO_INNER_JOIN = "rewrite_cross_join_or_to_inner_join";
     public static final String REWRITE_CROSS_JOIN_ARRAY_CONTAINS_TO_INNER_JOIN = "rewrite_cross_join_array_contains_to_inner_join";
     public static final String REWRITE_CROSS_JOIN_ARRAY_NOT_CONTAINS_TO_ANTI_JOIN = "rewrite_cross_join_array_not_contains_to_anti_join";
+    public static final String REWRITE_LEFT_JOIN_ARRAY_CONTAINS_TO_EQUI_JOIN = "rewrite_left_join_array_contains_to_equi_join";
     public static final String REWRITE_LEFT_JOIN_NULL_FILTER_TO_SEMI_JOIN = "rewrite_left_join_null_filter_to_semi_join";
     public static final String USE_BROADCAST_WHEN_BUILDSIZE_SMALL_PROBESIDE_UNKNOWN = "use_broadcast_when_buildsize_small_probeside_unknown";
     public static final String ADD_PARTIAL_NODE_FOR_ROW_NUMBER_WITH_LIMIT = "add_partial_node_for_row_number_with_limit";
@@ -297,8 +301,10 @@ public final class SystemSessionProperties
     public static final String INFER_INEQUALITY_PREDICATES = "infer_inequality_predicates";
     public static final String ENABLE_HISTORY_BASED_SCALED_WRITER = "enable_history_based_scaled_writer";
     public static final String USE_PARTIAL_AGGREGATION_HISTORY = "use_partial_aggregation_history";
+    public static final String TRACK_PARTIAL_AGGREGATION_HISTORY = "track_partial_aggregation_history";
     public static final String REMOVE_REDUNDANT_CAST_TO_VARCHAR_IN_JOIN = "remove_redundant_cast_to_varchar_in_join";
     public static final String HANDLE_COMPLEX_EQUI_JOINS = "handle_complex_equi_joins";
+    public static final String SKIP_HASH_GENERATION_FOR_JOIN_WITH_TABLE_SCAN_INPUT = "skip_hash_generation_for_join_with_table_scan_input";
 
     // TODO: Native execution related session properties that are temporarily put here. They will be relocated in the future.
     public static final String NATIVE_SIMPLIFIED_EXPRESSION_EVALUATION_ENABLED = "native_simplified_expression_evaluation_enabled";
@@ -310,6 +316,7 @@ public final class SystemSessionProperties
     public static final String NATIVE_MAX_SPILL_FILE_SIZE = "native_max_spill_file_size";
     public static final String NATIVE_SPILL_COMPRESSION_CODEC = "native_spill_compression_codec";
     public static final String NATIVE_SPILL_WRITE_BUFFER_SIZE = "native_spill_write_buffer_size";
+    public static final String NATIVE_SPILL_FILE_CREATE_CONFIG = "native_spill_file_create_config";
     public static final String NATIVE_JOIN_SPILL_ENABLED = "native_join_spill_enabled";
     public static final String NATIVE_EXECUTION_ENABLED = "native_execution_enabled";
     public static final String NATIVE_EXECUTION_EXECUTABLE_PATH = "native_execution_executable_path";
@@ -1037,6 +1044,18 @@ public final class SystemSessionProperties
                         featuresConfig.isDefaultFilterFactorEnabled(),
                         false),
                 new PropertyMetadata<>(
+                        CTE_MATERIALIZATION_STRATEGY,
+                        format("The strategy to materialize common table expressions. Options are %s",
+                                Stream.of(CteMaterializationStrategy.values())
+                                        .map(CteMaterializationStrategy::name)
+                                        .collect(joining(","))),
+                        VARCHAR,
+                        CteMaterializationStrategy.class,
+                        featuresConfig.getCteMaterializationStrategy(),
+                        false,
+                        value -> CteMaterializationStrategy.valueOf(((String) value).toUpperCase()),
+                        CteMaterializationStrategy::name),
+                new PropertyMetadata<>(
                         DEFAULT_JOIN_SELECTIVITY_COEFFICIENT,
                         "use a default join selectivity coefficient factor when column statistics are not available in a join node",
                         DOUBLE,
@@ -1564,6 +1583,13 @@ public final class SystemSessionProperties
                                 "If set to zero, buffering is disabled.",
                         1024L * 1024L,
                         false),
+                stringProperty(
+                        NATIVE_SPILL_FILE_CREATE_CONFIG,
+                        "Native Execution only. Config used to create spill files. This config is \n" +
+                                "provided to underlying file system and the config is free form. The form should be\n" +
+                                "defined by the underlying file system.",
+                        "",
+                        false),
                 booleanProperty(
                         NATIVE_JOIN_SPILL_ENABLED,
                         "Native Execution only. Enable join spilling on native engine",
@@ -1734,6 +1760,18 @@ public final class SystemSessionProperties
                         featuresConfig.isRewriteCrossJoinWithArrayNotContainsFilterToAntiJoin(),
                         false),
                 new PropertyMetadata<>(
+                        REWRITE_LEFT_JOIN_ARRAY_CONTAINS_TO_EQUI_JOIN,
+                        format("Set the strategy used to convert left join with array contains to inner join. Options are: %s",
+                                Stream.of(LeftJoinArrayContainsToInnerJoinStrategy.values())
+                                        .map(LeftJoinArrayContainsToInnerJoinStrategy::name)
+                                        .collect(joining(","))),
+                        VARCHAR,
+                        LeftJoinArrayContainsToInnerJoinStrategy.class,
+                        featuresConfig.getLeftJoinWithArrayContainsToEquiJoinStrategy(),
+                        false,
+                        value -> LeftJoinArrayContainsToInnerJoinStrategy.valueOf(((String) value).toUpperCase()),
+                        LeftJoinArrayContainsToInnerJoinStrategy::name),
+                new PropertyMetadata<>(
                         JOINS_NOT_NULL_INFERENCE_STRATEGY,
                         format("Set the strategy used NOT NULL filter inference on Join Nodes. Options are: %s",
                                 Stream.of(JoinNotNullInferenceStrategy.values())
@@ -1791,6 +1829,11 @@ public final class SystemSessionProperties
                         featuresConfig.isUsePartialAggregationHistory(),
                         false),
                 booleanProperty(
+                        TRACK_PARTIAL_AGGREGATION_HISTORY,
+                        "Track partial aggregation statistics in HBO",
+                        featuresConfig.isTrackPartialAggregationHistory(),
+                        false),
+                booleanProperty(
                         REMOVE_REDUNDANT_CAST_TO_VARCHAR_IN_JOIN,
                         "If both left and right side of join clause are varchar cast from int/bigint, remove the cast here",
                         featuresConfig.isRemoveRedundantCastToVarcharInJoin(),
@@ -1799,6 +1842,11 @@ public final class SystemSessionProperties
                         HANDLE_COMPLEX_EQUI_JOINS,
                         "Handle complex equi-join conditions to open up join space for join reordering",
                         featuresConfig.getHandleComplexEquiJoins(),
+                        false),
+                booleanProperty(
+                        SKIP_HASH_GENERATION_FOR_JOIN_WITH_TABLE_SCAN_INPUT,
+                        "Skip hash generation for join, when input is table scan node",
+                        featuresConfig.isSkipHashGenerationForJoinWithTableScanInput(),
                         false));
     }
 
@@ -2296,6 +2344,11 @@ public final class SystemSessionProperties
     public static DataSize getFilterAndProjectMinOutputPageSize(Session session)
     {
         return session.getSystemProperty(FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_SIZE, DataSize.class);
+    }
+
+    public static CteMaterializationStrategy getCteMaterializationStrategy(Session session)
+    {
+        return session.getSystemProperty(CTE_MATERIALIZATION_STRATEGY, CteMaterializationStrategy.class);
     }
 
     public static int getFilterAndProjectMinOutputPageRowCount(Session session)
@@ -2949,6 +3002,11 @@ public final class SystemSessionProperties
         return session.getSystemProperty(REWRITE_CROSS_JOIN_ARRAY_NOT_CONTAINS_TO_ANTI_JOIN, Boolean.class);
     }
 
+    public static LeftJoinArrayContainsToInnerJoinStrategy getLeftJoinArrayContainsToInnerJoinStrategy(Session session)
+    {
+        return session.getSystemProperty(REWRITE_LEFT_JOIN_ARRAY_CONTAINS_TO_EQUI_JOIN, LeftJoinArrayContainsToInnerJoinStrategy.class);
+    }
+
     public static boolean isRewriteLeftJoinNullFilterToSemiJoinEnabled(Session session)
     {
         return session.getSystemProperty(REWRITE_LEFT_JOIN_NULL_FILTER_TO_SEMI_JOIN, Boolean.class);
@@ -2994,6 +3052,11 @@ public final class SystemSessionProperties
         return session.getSystemProperty(USE_PARTIAL_AGGREGATION_HISTORY, Boolean.class);
     }
 
+    public static boolean trackPartialAggregationHistory(Session session)
+    {
+        return session.getSystemProperty(TRACK_PARTIAL_AGGREGATION_HISTORY, Boolean.class);
+    }
+
     public static boolean isRemoveRedundantCastToVarcharInJoinEnabled(Session session)
     {
         return session.getSystemProperty(REMOVE_REDUNDANT_CAST_TO_VARCHAR_IN_JOIN, Boolean.class);
@@ -3002,5 +3065,10 @@ public final class SystemSessionProperties
     public static boolean shouldHandleComplexEquiJoins(Session session)
     {
         return session.getSystemProperty(HANDLE_COMPLEX_EQUI_JOINS, Boolean.class);
+    }
+
+    public static boolean skipHashGenerationForJoinWithTableScanInput(Session session)
+    {
+        return session.getSystemProperty(SKIP_HASH_GENERATION_FOR_JOIN_WITH_TABLE_SCAN_INPUT, Boolean.class);
     }
 }
