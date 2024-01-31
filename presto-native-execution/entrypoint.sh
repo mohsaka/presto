@@ -17,4 +17,5 @@ echo "node.id=$HOSTNAME" >> /opt/presto-server/etc/node.properties
 # https://github.com/prestodb/presto/issues/20020#issuecomment-1785083459
 GLOG_logtostderr=1 presto_server \
     --etc-dir=/opt/presto-server/etc \
+    --ssd_odirect=false \
     2>&1 | tee /var/log/presto-server/console.log
