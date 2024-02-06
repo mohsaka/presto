@@ -190,6 +190,8 @@ class PrestoServer {
 
   void reportNodeStatus(proxygen::ResponseHandler* downstream);
 
+  void reportHealthMetrics(proxygen::ResponseHandler* downstream);
+
   protocol::NodeStatus fetchNodeStatus();
 
   void populateMemAndCPUInfo();
