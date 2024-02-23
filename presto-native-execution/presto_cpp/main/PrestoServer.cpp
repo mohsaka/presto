@@ -57,6 +57,8 @@
 #include "presto_cpp/main/RemoteFunctionRegisterer.h"
 #endif
 
+#include <gperftools/heap-profiler.h>
+
 namespace facebook::presto {
 using namespace facebook::velox;
 
@@ -135,6 +137,7 @@ PrestoServer::PrestoServer(const std::string& configDirectoryPath)
 PrestoServer::~PrestoServer() {}
 
 void PrestoServer::run() {
+  HeapProfilerStart();
   auto systemConfig = SystemConfig::instance();
   auto nodeConfig = NodeConfig::instance();
   auto baseVeloxQueryConfig = BaseVeloxQueryConfig::instance();
@@ -600,6 +603,7 @@ void PrestoServer::run() {
     PRESTO_SHUTDOWN_LOG(INFO) << "Shutdown AsyncDataCache";
     cache_->shutdown();
   }
+  HeapProfilerStop();
 }
 
 void PrestoServer::yieldTasks() {
