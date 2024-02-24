@@ -48,7 +48,8 @@ target_link_libraries(
   ${RE2}
   gmock
   gtest
-  gtest_main)
+  gtest_main
+  ${GPERFTOOLS_LINK_LIBRARIES})
 
 set_property(TARGET presto_server_test PROPERTY JOB_POOL_LINK
                                                 presto_link_job_pool)
