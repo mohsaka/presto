@@ -5,6 +5,7 @@ FROM ghcr.io/facebookincubator/velox-dev:circleci-avx as Builder
 WORKDIR  /app
 COPY . .
 RUN cd presto-native-execution && \
+    cp FindGperftools.cmake /usr/share/cmake/Modules && \
     make velox-submodule && \
     source /opt/rh/gcc-toolset-9/enable && \
     ./scripts/setup-centos.sh && \

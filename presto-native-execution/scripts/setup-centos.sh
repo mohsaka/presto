@@ -18,7 +18,7 @@ export FB_OS_VERSION=v2023.12.04.00
 export RE2_VERSION=2021-04-01
 export nproc=$(getconf _NPROCESSORS_ONLN)
 
-dnf install -y maven java python3-devel clang-tools-extra jq perl-XML-XPath autoconf pkgconfig
+dnf install -y maven java python3-devel clang-tools-extra jq perl-XML-XPath gperftools
 
 python3 -m pip install regex pyyaml chevron black
 
@@ -53,15 +53,5 @@ export COMPILER_FLAGS=$(echo -n $(get_cxx_flags $CPU_TARGET))
   git checkout $FB_OS_VERSION &&
   cmake_install -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=ON
 )
-
-(
-  git clone https://github.com/gperftools/gperftools &&
-  cd gperftools &&
-  ./autogen.sh && 
-  ./configure &&
-  make &&
-  make install
-)
-
 
 dnf clean all
