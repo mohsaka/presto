@@ -137,7 +137,7 @@ PrestoServer::PrestoServer(const std::string& configDirectoryPath)
 PrestoServer::~PrestoServer() {}
 
 void PrestoServer::run() {
-  HeapProfilerStart("/Users/michaelohsaka/memory/memoryissue.heap");
+  HeapProfilerStart("/opt/presto-server/async_data_cache/memoryissue.heap");
   auto systemConfig = SystemConfig::instance();
   auto nodeConfig = NodeConfig::instance();
   auto baseVeloxQueryConfig = BaseVeloxQueryConfig::instance();
