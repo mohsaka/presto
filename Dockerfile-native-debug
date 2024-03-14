@@ -16,15 +16,12 @@ RUN cd presto-native-execution && \
     cp _build/debug/presto_cpp/main/presto_server prestissimo && \
     mkdir -p prestissimo/runtime-libraries && \
     ldd _build/debug/presto_cpp/main/presto_server | awk 'NF == 4 { system("cp " $3 " prestissimo/runtime-libraries/") }' && \
-    tar cvf prestissimo.tar entrypoint.sh velox.properties prestissimo
-
-##
-
-FROM quay.io/centos/centos:stream8
+    tar cvf prestissimo.tar entrypoint_debug.sh velox.properties prestissimo
 
 ENV PRESTO_HOME="/opt/presto-server"
 
 RUN dnf update -y && dnf install -y epel-release
+
 RUN dnf update -y && dnf --enablerepo=powertools install -y \
         awscli \
         gperf \
@@ -37,19 +34,20 @@ RUN dnf update -y && dnf --enablerepo=powertools install -y \
         vim \
         wget \
         which \
+        lldb \
+        openssh-server \
+        openssh-clients \
         && \
     mkdir -p $PRESTO_HOME/etc/catalog && \
     mkdir -p /var/lib/presto/data
 
-WORKDIR  /app
-COPY --from=Builder /app/presto-native-execution/prestissimo.tar .
-RUN tar xvf prestissimo.tar && \
+RUN cd presto-native-execution && \
+    tar xvf prestissimo.tar && \
     mkdir -p /opt/presto-server/etc && \
     mv prestissimo/presto_server /usr/local/bin/ && \
     mv velox.properties /opt/presto-server/etc/ && \
-    mv entrypoint.sh /opt/ && \
+    mv entrypoint_debug.sh /opt/ && \
     mv prestissimo/runtime-libraries/* /usr/local/lib/ && \
     touch /opt/presto-native-execution-${PRESTO_VERSION}
 
-ENTRYPOINT ["/opt/entrypoint.sh"]
-
+ENTRYPOINT ["/opt/entrypoint_debug.sh"]
