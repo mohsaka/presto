@@ -9,11 +9,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-.PHONY: all cmake build clean debug release relWithDebInfo unittest submodules velox-submodule
+.PHONY: all cmake build clean debug release unittest submodules velox-submodule
 
 BUILD_BASE_DIR=_build
 BUILD_DIR=release
-BUILD_TYPE=RelWitDebInfo
+BUILD_TYPE=Release
 TREAT_WARNINGS_AS_ERRORS ?= 1
 ENABLE_WALL ?= 1
 NUM_THREADS ?= $(shell getconf _NPROCESSORS_CONF 2>/dev/null || echo 1)
@@ -76,13 +76,8 @@ debug:					#: Build with debugging symbols
 	$(MAKE) build BUILD_DIR=debug
 
 release:				#: Build the release version
-	$(MAKE) cmake BUILD_DIR=release BUILD_TYPE=RelWitDebInfo && \
+	$(MAKE) cmake BUILD_DIR=release BUILD_TYPE=Release && \
 	$(MAKE) build BUILD_DIR=release
-
-relWithDebInfo:				#: Build the release version with debug symbols
-	$(MAKE) cmake BUILD_DIR=release BUILD_TYPE=RelWithDebInfo && \
-	$(MAKE) build BUILD_DIR=release
-
 
 unittest: debug			#: Build with debugging and run unit tests
 	cd $(BUILD_BASE_DIR)/debug && ctest -j $(NUM_THREADS) -VV --output-on-failure --exclude-regex velox.*
