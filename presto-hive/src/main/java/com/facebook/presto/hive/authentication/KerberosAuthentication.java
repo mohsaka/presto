@@ -27,6 +27,7 @@ import javax.security.auth.login.LoginException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -45,6 +46,7 @@ public class KerberosAuthentication
 
     private final KerberosPrincipal principal;
     private final Configuration configuration;
+    private static final String KEYTAB_ENCRYPTION_EXT = ".encrypted";
 
     public KerberosAuthentication(String principal, String keytabLocation)
     {
@@ -62,10 +64,27 @@ public class KerberosAuthentication
         Subject subject = new Subject(false, ImmutableSet.of(principal), emptySet(), emptySet());
         try {
             LoginContext loginContext = new LoginContext("", subject, null, configuration);
-            loginContext.login();
+            AppConfigurationEntry[] arr = configuration.getAppConfigurationEntry("");
+            String keyTabLocation = (String) arr[0].getOptions().get("keyTab");
+            Path keytabPath = Paths.get(keyTabLocation);
+            Path encryptedKeytabPath = Paths.get(keyTabLocation.concat(KEYTAB_ENCRYPTION_EXT));
+            boolean isEncryptedFilePresent = false;
+            try {
+                if (exists(encryptedKeytabPath)) {
+                    isEncryptedFilePresent = true;
+                    checkArgument(isReadable(encryptedKeytabPath), "Encrypted keytab is not readable: " + encryptedKeytabPath);
+                    decryptKeytabFiles(encryptedKeytabPath, keytabPath);
+                }
+                loginContext.login();
+            }
+            finally {
+                if (isEncryptedFilePresent) {
+                    Files.write(keytabPath, new byte[0]);
+                }
+            }
             return loginContext.getSubject();
         }
-        catch (LoginException e) {
+        catch (LoginException | IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -108,5 +127,18 @@ public class KerberosAuthentication
                                 options)};
             }
         };
+    }
+
+    private static void decryptKeytabFiles(Path encryptedKeytabPath, Path originalKeytabPath)
+    {
+        KerberosEncrypter kerberosEncryptUtil = new KerberosEncrypter();
+        try {
+            byte[] keyTabBytes = Files.readAllBytes(encryptedKeytabPath);
+            byte[] decryptedBytes = kerberosEncryptUtil.k256Decrypt(new String(keyTabBytes));
+            Files.write(originalKeytabPath, decryptedBytes);
+        }
+        catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
