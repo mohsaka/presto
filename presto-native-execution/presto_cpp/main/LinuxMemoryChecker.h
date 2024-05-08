@@ -13,6 +13,8 @@ class LinuxMemoryChecker : public PeriodicMemoryChecker {
         periodicCb_(std::move(periodicCb)),
         heapDumpCb_(std::move(heapDumpCb)) {}
 
+  ~LinuxMemoryChecker() override {}
+
   void setMallocBytes(int64_t mallocBytes) {
     mallocBytes_ = mallocBytes;
   }
