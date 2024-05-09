@@ -1,14 +1,16 @@
 ARG PRESTO_VERSION
 
-FROM ghcr.io/facebookincubator/velox-dev:adapters as Builder
+FROM ghcr.io/facebookincubator/velox-dev:centos8 as Builder
 
 WORKDIR  /app
 COPY . .
 RUN cd presto-native-execution && \
     make velox-submodule && \
     source /opt/rh/gcc-toolset-9/enable && \
-    ./scripts/setup-centos.sh && \
-    EXTRA_CMAKE_FLAGS=" -DVELOX_ENABLE_INT64_BUILD_PARTITION_BOUND=ON -DPRESTO_ENABLE_TESTING=OFF" PRESTO_ENABLE_PARQUET=ON PRESTO_ENABLE_S3=ON MAX_HIGH_MEM_JOBS=8 MAX_LINK_JOBS=8 NUM_THREADS=8 TREAT_WARNINGS_AS_ERRORS=0 make debug \
+    ./scripts/setup-centos.sh install_presto_deps && \
+    ./velox/scripts/setup-adapters.sh aws && \
+    EXTRA_CMAKE_FLAGS=" -DVELOX_ENABLE_INT64_BUILD_PARTITION_BOUND=ON -DPRESTO_ENABLE_TESTING=OFF" \
+    PRESTO_ENABLE_PARQUET=ON PRESTO_ENABLE_S3=ON MAX_HIGH_MEM_JOBS=8 MAX_LINK_JOBS=8 NUM_THREADS=8 TREAT_WARNINGS_AS_ERRORS=0 make debug \
     || tail -n 500 _build/debug/CMakeFiles/CMakeError.log
 
 RUN cd presto-native-execution && \
