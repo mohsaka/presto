@@ -25,69 +25,84 @@
 #include <folly/Format.h>
 #include <folly/Range.h>
 #include <folly/String.h>
+
+#include <sys/stat.h>
+
 #endif
 
 namespace facebook::presto {
 int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
 #ifdef __linux__
+  static int cgroupVersion = -1;
   size_t memAvailable = 0;
   size_t memTotal = 0;
   size_t inUseMemory = 0;
   size_t cacheMemory = 0;
   boost::cmatch match;
+  std::array<char, 50> buf;
 
-  // V1 variables
-  auto currentMemoryUsageV1File =
+  // Find out what cgroup version we have
+  if(cgroupVersion == -1) {
+    struct stat buffer;
+    if((stat ("/sys/fs/cgroup/memory/memory.usage_in_bytes", &buffer) == 0)){
+      cgroupVersion = 1;
+    }else if((stat ("/sys/fs/cgroup/memory.current", &buffer) == 0)){
+      cgroupVersion = 2;
+    }else{
+      cgroupVersion = 0;
+    }
+    LOG(INFO) << fmt::format(
+        "Using cgroup version {}",
+        cgroupVersion);
+  }
+
+  if(cgroupVersion == 1){
+    auto currentMemoryUsageFile =
       folly::File("/sys/fs/cgroup/memory/memory.usage_in_bytes", O_RDONLY);
-  static const boost::regex cacheRegexV1(R"!(total_inactive_file\s*(\d+)\s*)!");
+    static const boost::regex cacheRegex(R"!(total_inactive_file\s*(\d+)\s*)!");
 
-  // V2 variables
-  auto currentMemoryUsageV2File =
+    // Read current in use memory from memory.usage_in_bytes
+    if (folly::readNoInt(
+          currentMemoryUsageFile.fd(), buf.data(), buf.size())) {
+      LOG(INFO) << "Read an int";
+      if (sscanf(buf.data(), "%" SCNu64, &inUseMemory) == 1) {
+        LOG(INFO) << "Read buf data correctly"
+        // Get total cached memory from memory.stat and subtract from inUseMemory
+        folly::gen::byLine("/sys/fs/cgroup/memory/memory.stat") | [&](folly::StringPiece line) -> void {
+          if (boost::regex_match(line.begin(), line.end(), match, cacheRegex)) {
+            folly::StringPiece numStr(
+              line.begin() + match.position(1), size_t(match.length(1)));
+            cacheMemory = folly::to<size_t>(numStr);
+          }
+        };
+        LOG(INFO) << "Returning";
+        return inUseMemory - cacheMemory;
+      }
+    }
+  } else if(cgroupVersion == 2){
+    auto currentMemoryUsageFile =
       folly::File("/sys/fs/cgroup/memory.current", O_RDONLY);
-  static const boost::regex cacheRegexV2(R"!(inactive_file\s*(\d+)\s*)!");
+    static const boost::regex cacheRegex(R"!(inactive_file\s*(\d+)\s*)!");
+    if (folly::readNoInt(
+          currentMemoryUsageFile.fd(), buf.data(), buf.size())) {
+      if (sscanf(buf.data(), "%" SCNu64, &inUseMemory) == 1) {
+        // Get total cached memory from memory.stat and subtract from inUseMemory
+        folly::gen::byLine("/sys/fs/cgroup/memory.stat") | [&](folly::StringPiece line) -> void {
+          if (boost::regex_match(line.begin(), line.end(), match, cacheRegex)) {
+            folly::StringPiece numStr(
+              line.begin() + match.position(1), size_t(match.length(1)));
+            cacheMemory = folly::to<size_t>(numStr);
+          }
+        };
+        return inUseMemory - cacheMemory;
+      }
+    }
+  }
 
+  LOG(INFO) << "Got here for some reason";
   // Default case variables
   static const boost::regex memAvailableRegex(R"!(MemAvailable:\s*(\d+)\s*kB)!");
   static const boost::regex memTotalRegex(R"!(MemTotal:\s*(\d+)\s*kB)!");
-
-  // If we are using cgroup V1
-  std::array<char, 50> bufV1;
-
-  // Read current in use memory from memory.usage_in_bytes
-  if (folly::readNoInt(
-          currentMemoryUsageV1File.fd(), bufV1.data(), bufV1.size())) {
-    if (sscanf(bufV1.data(), "%" SCNu64, &inUseMemory) == 1) {
-      // Get total cached memory from memory.stat and subtract from inUseMemory
-      folly::gen::byLine("/sys/fs/cgroup/memory/memory.stat") | [&](folly::StringPiece line) -> void {
-        if (boost::regex_match(line.begin(), line.end(), match, cacheRegexV1)) {
-          folly::StringPiece numStr(
-            line.begin() + match.position(1), size_t(match.length(1)));
-          cacheMemory = folly::to<size_t>(numStr);
-        }
-      };
-      return inUseMemory - cacheMemory;
-    }
-  }
-
-  // If we are using cgroup V2
-  std::array<char, 50> bufV2;
-
-  if (folly::readNoInt(
-          currentMemoryUsageV2File.fd(), bufV2.data(), bufV2.size())) {
-    if (sscanf(bufV2.data(), "%" SCNu64, &inUseMemory) == 1) {
-      // Get total cached memory from memory.stat and subtract from inUseMemory
-      folly::gen::byLine("/sys/fs/cgroup/memory.stat") | [&](folly::StringPiece line) -> void {
-        if (boost::regex_match(line.begin(), line.end(), match, cacheRegexV2)) {
-          folly::StringPiece numStr(
-            line.begin() + match.position(1), size_t(match.length(1)));
-          cacheMemory = folly::to<size_t>(numStr);
-        }
-      };
-      return inUseMemory - cacheMemory;
-    }
-  }
-
-
   // Last resort use host machine info
   folly::gen::byLine("/proc/meminfo") | [&](folly::StringPiece line) -> void {
     if (boost::regex_match(line.begin(), line.end(), match, memAvailableRegex)) {
