@@ -64,9 +64,7 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
     // Read current in use memory from memory.usage_in_bytes
     if (folly::readNoInt(
           currentMemoryUsageFile.fd(), buf.data(), buf.size())) {
-      LOG(INFO) << "Read an int";
       if (sscanf(buf.data(), "%" SCNu64, &inUseMemory) == 1) {
-        LOG(INFO) << "Read buf data correctly";
         // Get total cached memory from memory.stat and subtract from inUseMemory
         folly::gen::byLine("/sys/fs/cgroup/memory/memory.stat") | [&](folly::StringPiece line) -> void {
           if (boost::regex_match(line.begin(), line.end(), match, cacheRegex)) {
@@ -75,7 +73,7 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
             cacheMemory = folly::to<size_t>(numStr);
           }
         };
-        LOG(INFO) << "Returning";
+        LOG(INFO) << fmt::format("{} {}", inUseMemory, cacheMemory);
         return inUseMemory - cacheMemory;
       }
     }
@@ -99,7 +97,6 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
     }
   }
 
-  LOG(INFO) << "Got here for some reason";
   // Default case variables
   static const boost::regex memAvailableRegex(R"!(MemAvailable:\s*(\d+)\s*kB)!");
   static const boost::regex memTotalRegex(R"!(MemTotal:\s*(\d+)\s*kB)!");
