@@ -33,6 +33,7 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
   size_t memAvailable = 0;
   size_t memTotal = 0;
   size_t inUseMemory = 0;
+  size_t cacheMemory = 0;
   boost::cmatch match;
 
   // V1 variables
@@ -56,37 +57,36 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
   if (folly::readNoInt(
           currentMemoryUsageV1File.fd(), bufV1.data(), bufV1.size())) {
     if (sscanf(bufV1.data(), "%" SCNu64, &inUseMemory) == 1) {
-
       // Get total cached memory from memory.stat and subtract from inUseMemory
       folly::gen::byLine("/sys/fs/cgroup/memory/memory.stat") | [&](folly::StringPiece line) -> void {
         if (boost::regex_match(line.begin(), line.end(), match, cacheRegexV1)) {
           folly::StringPiece numStr(
             line.begin() + match.position(1), size_t(match.length(1)));
-          return inUseMemory - folly::to<size_t>(numStr);
+          cacheMemory = folly::to<size_t>(numStr);
         }
       };
-
+      return inUseMemory - cacheMemory;
     }
   }
 
   // If we are using cgroup V2
   std::array<char, 50> bufV2;
-  inUseMemory = 0;
+
   if (folly::readNoInt(
           currentMemoryUsageV2File.fd(), bufV2.data(), bufV2.size())) {
     if (sscanf(bufV2.data(), "%" SCNu64, &inUseMemory) == 1) {
-
       // Get total cached memory from memory.stat and subtract from inUseMemory
       folly::gen::byLine("/sys/fs/cgroup/memory.stat") | [&](folly::StringPiece line) -> void {
         if (boost::regex_match(line.begin(), line.end(), match, cacheRegexV2)) {
           folly::StringPiece numStr(
             line.begin() + match.position(1), size_t(match.length(1)));
-          return inUseMemory - folly::to<size_t>(numStr);
+          cacheMemory = folly::to<size_t>(numStr);
         }
       };
-
+      return inUseMemory - cacheMemory;
     }
   }
+
 
   // Last resort use host machine info
   folly::gen::byLine("/proc/meminfo") | [&](folly::StringPiece line) -> void {
