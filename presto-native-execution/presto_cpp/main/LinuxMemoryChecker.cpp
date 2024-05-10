@@ -66,7 +66,7 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
           currentMemoryUsageFile.fd(), buf.data(), buf.size())) {
       LOG(INFO) << "Read an int";
       if (sscanf(buf.data(), "%" SCNu64, &inUseMemory) == 1) {
-        LOG(INFO) << "Read buf data correctly"
+        LOG(INFO) << "Read buf data correctly";
         // Get total cached memory from memory.stat and subtract from inUseMemory
         folly::gen::byLine("/sys/fs/cgroup/memory/memory.stat") | [&](folly::StringPiece line) -> void {
           if (boost::regex_match(line.begin(), line.end(), match, cacheRegex)) {
