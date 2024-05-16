@@ -165,6 +165,19 @@ void PeriodicMemoryChecker::pushbackMemory() {
   const uint64_t bytesToShrink = currentMemBytes - targetMemBytes;
   VELOX_CHECK_GT(bytesToShrink, 0);
 
+  size_t rssMem = 0;
+  std::string smapFile = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
+  static const boost::regex rssRegex(R"!(Rss:\s*(\d+)\s*kB)!");
+  folly::gen::byLine(smapFile) | [&](folly::StringPiece line) -> void {
+    if (boost::regex_match(
+            line.begin(), line.end(), match, rssRegex)) {
+      folly::StringPiece numStr(
+          line.begin() + match.position(1), size_t(match.length(1)));
+      rssMem = folly::to<size_t>(numStr) * 1024;
+    }
+  };
+  LOG(INFO) << fmt::format("Current RSS: {}", rssMem);  
+
   auto* cache = velox::cache::AsyncDataCache::getInstance();
   auto systemConfig = SystemConfig::instance();
   auto freedBytes = cache != nullptr ? cache->shrink(bytesToShrink) : 0;
@@ -200,5 +213,15 @@ void PeriodicMemoryChecker::pushbackMemory() {
   }
 
   LOG(INFO) << "Shrunk " << velox::succinctBytes(freedBytes);
+  rssMem = 0;
+  folly::gen::byLine(smapFile) | [&](folly::StringPiece line) -> void {
+    if (boost::regex_match(
+            line.begin(), line.end(), match, rssRegex)) {
+      folly::StringPiece numStr(
+          line.begin() + match.position(1), size_t(match.length(1)));
+      rssMem = folly::to<size_t>(numStr) * 1024;
+    }
+  };
+  LOG(INFO) << fmt::format("After shrink RSS: {}", rssMem);
 }
 } // namespace facebook::presto
