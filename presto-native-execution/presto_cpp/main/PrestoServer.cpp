@@ -522,7 +522,7 @@ void PrestoServer::run() {
   uint64_t systemMemShrinkBytes = systemConfig->systemMemShrinkGb();
   linuxMemoryChecker_ =
       std::make_unique<LinuxMemoryChecker>(PeriodicMemoryChecker::Config{
-          1, // memoryCheckerIntervalSec
+          1000, // memoryCheckerIntervalSec
           systemConfig->systemMemPushbackEnabled(), // systemMemPushbackEnabled
           systemMemLimitBytes << 30, // systemMemLimitBytes
           systemMemShrinkBytes << 30, // systemMemShrinkBytes

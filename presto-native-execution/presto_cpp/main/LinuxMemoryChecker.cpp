@@ -28,6 +28,9 @@
 #include <folly/String.h>
 
 #include <sys/stat.h>
+#include <unistd.h> 
+#include <fstream>
+#include <sstream>
 
 #endif
 
@@ -87,6 +90,24 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
             cacheMemory = folly::to<size_t>(numStr);
           }
         };
+
+  // Default case variables
+  static const boost::regex memAvailableRegex(
+      R"!(MemAvailable:\s*(\d+)\s*kB)!");
+  folly::gen::byLine("/proc/meminfo") | [&](folly::StringPiece line) -> void {
+    if (boost::regex_match(
+            line.begin(), line.end(), match, memAvailableRegex)) {
+      folly::StringPiece numStr(
+          line.begin() + match.position(1), size_t(match.length(1)));
+      memAvailable = folly::to<size_t>(numStr) * 1024;
+    }
+  };
+
+   string base = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
+   std::ifstream t(base);
+   std::stringstream buffer;
+   buffer << t.rdbuf();
+        LOG(INFO) << fmt::format("Memory usage in bytes {}, inactive files {}, memAvailable {}, rss {}", inUseMemory, cacheMemory, memAvailable, buffer.str());
         return inUseMemory - cacheMemory;
       }
     }
