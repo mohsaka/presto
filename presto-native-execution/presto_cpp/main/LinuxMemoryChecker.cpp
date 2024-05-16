@@ -27,6 +27,7 @@
 #include <folly/Range.h>
 #include <folly/String.h>
 
+#include <string>
 #include <sys/stat.h>
 #include <unistd.h> 
 #include <fstream>
@@ -103,8 +104,8 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
     }
   };
 
-   string base = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
-   std::ifstream t(base);
+   string stringWPid = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
+   std::ifstream t(stringWPid);
    std::stringstream buffer;
    buffer << t.rdbuf();
         LOG(INFO) << fmt::format("Memory usage in bytes {}, inactive files {}, memAvailable {}, rss {}", inUseMemory, cacheMemory, memAvailable, buffer.str());
