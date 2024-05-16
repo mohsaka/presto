@@ -104,7 +104,7 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
     }
   };
 
-   string stringWPid = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
+   std::string stringWPid = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
    std::ifstream t(stringWPid);
    std::stringstream buffer;
    buffer << t.rdbuf();
