@@ -18,6 +18,23 @@
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/memory/Memory.h"
 
+#ifdef __linux__
+#include <boost/regex.hpp>
+#include <folly/File.h>
+#include <folly/FileUtil.h>
+#include <folly/gen/Base.h>
+#include <folly/gen/File.h>
+#include <folly/gen/String.h>
+
+#include <folly/Conv.h>
+#include <folly/Range.h>
+#include <folly/String.h>
+
+#include <unistd.h>
+
+#endif
+
+
 namespace facebook::presto {
 PeriodicMemoryChecker::PeriodicMemoryChecker(Config config)
     : config_(std::move(config)) {

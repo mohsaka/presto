@@ -22,13 +22,9 @@
 #include <folly/gen/String.h>
 
 #include <folly/Conv.h>
-#include <folly/CppAttributes.h>
-#include <folly/Format.h>
 #include <folly/Range.h>
 #include <folly/String.h>
 
-#include <string>
-#include <sys/stat.h>
 #include <unistd.h> 
 
 #endif
