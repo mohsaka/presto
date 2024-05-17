@@ -185,9 +185,10 @@ void PeriodicMemoryChecker::pushbackMemory() {
   VELOX_CHECK_GT(bytesToShrink, 0);
 
   size_t rssMem = 0;
+  boost::cmatch match;
   std::string smapFile = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
   static const boost::regex rssRegex(R"!(Rss:\s*(\d+)\s*kB)!");
-  folly::gen::byLine(smapFile) | [&](folly::StringPiece line) -> void {
+  folly::gen::byLine(smapFile.c_str()) | [&](folly::StringPiece line) -> void {
     if (boost::regex_match(
             line.begin(), line.end(), match, rssRegex)) {
       folly::StringPiece numStr(
@@ -233,11 +234,12 @@ void PeriodicMemoryChecker::pushbackMemory() {
 
   LOG(INFO) << "Shrunk " << velox::succinctBytes(freedBytes);
   rssMem = 0;
-  folly::gen::byLine(smapFile) | [&](folly::StringPiece line) -> void {
+  boost::cmatch match2;
+  folly::gen::byLine(smapFile.c_str()) | [&](folly::StringPiece line) -> void {
     if (boost::regex_match(
-            line.begin(), line.end(), match, rssRegex)) {
+            line.begin(), line.end(), match2, rssRegex)) {
       folly::StringPiece numStr(
-          line.begin() + match.position(1), size_t(match.length(1)));
+          line.begin() + match2.position(1), size_t(match2.length(1)));
       rssMem = folly::to<size_t>(numStr) * 1024;
     }
   };

@@ -36,10 +36,11 @@ namespace facebook::presto {
 int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
 #ifdef __linux__
   size_t rssMem = 0;
+  boost::cmatch match;
   std::string smapFile = "/proc/" + std::to_string(getpid()) + "/smaps_rollup";
 
   static const boost::regex rssRegex(R"!(Rss:\s*(\d+)\s*kB)!");
-  folly::gen::byLine(smapFile) | [&](folly::StringPiece line) -> void {
+  folly::gen::byLine(smapFile.c_str()) | [&](folly::StringPiece line) -> void {
     if (boost::regex_match(
             line.begin(), line.end(), match, rssRegex)) {
       folly::StringPiece numStr(
