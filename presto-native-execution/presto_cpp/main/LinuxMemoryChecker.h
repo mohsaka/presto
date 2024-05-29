@@ -19,10 +19,12 @@ class LinuxMemoryChecker : public PeriodicMemoryChecker {
  public:
   explicit LinuxMemoryChecker(
       PeriodicMemoryChecker::Config config,
+      bool useMeminfo = false,
       int64_t mallocBytes = 0,
       std::function<void()>&& periodicCb = nullptr,
       std::function<bool(const std::string&)>&& heapDumpCb = nullptr)
       : PeriodicMemoryChecker(config),
+        useMeminfo_(useMeminfo),
         mallocBytes_(mallocBytes),
         periodicCb_(std::move(periodicCb)),
         heapDumpCb_(std::move(heapDumpCb)) {}
@@ -56,6 +58,7 @@ class LinuxMemoryChecker : public PeriodicMemoryChecker {
   void removeDumpFile(const std::string& filePath) const override {}
 
  private:
+  bool useMeminfo_;
   int64_t mallocBytes_{0};
   std::function<void()> periodicCb_;
   std::function<bool(const std::string&)> heapDumpCb_;

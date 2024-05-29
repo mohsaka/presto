@@ -523,7 +523,7 @@ void PrestoServer::run() {
   uint64_t systemMemShrinkBytes = systemConfig->systemMemShrinkGb();
   linuxMemoryChecker_ =
       std::make_unique<LinuxMemoryChecker>(PeriodicMemoryChecker::Config{
-          1, // memoryCheckerIntervalSec
+          1000, // memoryCheckerIntervalSec
           systemConfig->systemMemPushbackEnabled(), // systemMemPushbackEnabled
           systemMemLimitBytes << 30, // systemMemLimitBytes
           systemMemShrinkBytes << 30, // systemMemShrinkBytes
@@ -533,7 +533,8 @@ void PrestoServer::run() {
           "/path/to/dir", // heapDumpLogDir
           "prefix", // heapDumpFilePrefix
           systemConfig->mallocMemMaxHeapDumpFiles(), // maxHeapDumpFiles
-          20UL * 1024 * 1024 * 1024}); // mallocBytesUsageDumpThreshold
+          20UL * 1024 * 1024 * 1024}, // mallocBytesUsageDumpThreshold
+          systemConfig->systemMemUseMeminfo()); //systemMemUseMeminfo
 
   linuxMemoryChecker_->start();
 

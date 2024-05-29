@@ -18,6 +18,12 @@
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/memory/Memory.h"
 
+#include <fstream>
+#include <sstream>
+
+
+
+
 namespace facebook::presto {
 PeriodicMemoryChecker::PeriodicMemoryChecker(Config config)
     : config_(std::move(config)) {
@@ -165,6 +171,18 @@ void PeriodicMemoryChecker::pushbackMemory() {
   const uint64_t bytesToShrink = currentMemBytes - targetMemBytes;
   VELOX_CHECK_GT(bytesToShrink, 0);
 
+  std::ifstream f1("/sys/fs/cgroup/memory/memory.stat");
+  std::stringstream buffer1;
+  buffer1 << f1.rdbuf();
+  f1.close();
+  LOG(INFO) << "memory.stat information before shrink: " << buffer1.str();
+
+  std::ifstream usage1("/sys/fs/cgroup/memory/memory.usage_in_bytes");
+  std::stringstream usageBuffer1;
+  usageBuffer1 << usage1.rdbuf();
+  usage1.close();
+  LOG(INFO) << "usage in bytes before shrink" << usageBuffer1.str();
+
   auto* cache = velox::cache::AsyncDataCache::getInstance();
   auto systemConfig = SystemConfig::instance();
   auto freedBytes = cache != nullptr ? cache->shrink(bytesToShrink) : 0;
@@ -200,5 +218,16 @@ void PeriodicMemoryChecker::pushbackMemory() {
   }
 
   LOG(INFO) << "Shrunk " << velox::succinctBytes(freedBytes);
+  std::ifstream f2("/sys/fs/cgroup/memory/memory.stat");
+  std::stringstream buffer2;
+  buffer2 << f2.rdbuf();
+  f2.close();
+  LOG(INFO) << "memory.stat information before shrink: " << buffer2.str();
+        
+  std::ifstream usage2("/sys/fs/cgroup/memory/memory.usage_in_bytes");
+  std::stringstream usageBuffer2;
+  usageBuffer2 << usage2.rdbuf();
+  usage2.close();
+  LOG(INFO) << "usage in bytes after shrink" << usageBuffer2.str();
 }
 } // namespace facebook::presto
