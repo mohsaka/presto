@@ -183,6 +183,7 @@ SystemConfig::SystemConfig() {
           NUM_PROP(kAsyncCacheSsdGb, 0),
           NUM_PROP(kAsyncCacheSsdCheckpointGb, 0),
           STR_PROP(kAsyncCacheSsdPath, "/mnt/flash/async_cache."),
+          NUM_PROP(kAsyncCacheShrinkGb, 0),
           BOOL_PROP(kAsyncCacheSsdDisableFileCow, false),
           BOOL_PROP(kSsdCacheChecksumEnabled, false),
           BOOL_PROP(kSsdCacheReadVerificationEnabled, false),
@@ -434,6 +435,10 @@ uint64_t SystemConfig::localShuffleMaxPartitionBytes() const {
 
 std::string SystemConfig::asyncCacheSsdPath() const {
   return optionalProperty(kAsyncCacheSsdPath).value();
+}
+
+uint64_t SystemConfig::asyncCacheShrinkGb() const {
+  return optionalProperty<uint64_t>(kAsyncCacheShrinkGb).value();
 }
 
 bool SystemConfig::asyncCacheSsdDisableFileCow() const {
