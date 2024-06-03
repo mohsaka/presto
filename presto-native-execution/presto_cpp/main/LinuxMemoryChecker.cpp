@@ -29,7 +29,6 @@
 
 #include <sys/stat.h>
 
-#include <sys/sysctl.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <cinttypes>
