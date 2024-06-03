@@ -174,6 +174,7 @@ SystemConfig::SystemConfig() {
           BOOL_PROP(kSystemMemPushbackEnabled, false),
           NUM_PROP(kSystemMemLimitGb, 55),
           NUM_PROP(kSystemMemShrinkGb, 8),
+          BOOL_PROP(kSystemMemUseMeminfo, false),
           BOOL_PROP(kMallocMemHeapDumpEnabled, false),
           BOOL_PROP(kSystemMemPushbackAbortEnabled, false),
           NUM_PROP(kMallocHeapDumpThresholdGb, 20),
@@ -394,6 +395,10 @@ uint32_t SystemConfig::systemMemShrinkGb() const {
 
 bool SystemConfig::systemMemPushbackEnabled() const {
   return optionalProperty<bool>(kSystemMemPushbackEnabled).value();
+}
+
+bool SystemConfig::systemMemUseMeminfo() const {
+  return optionalProperty<bool>(kSystemMemUseMeminfo).value();
 }
 
 bool SystemConfig::systemMemPushBackAbortEnabled() const {

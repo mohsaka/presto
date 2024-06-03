@@ -274,6 +274,10 @@ class SystemConfig : public ConfigBase {
   /// condition. This only applies if 'system-mem-limit-gb' is set.
   static constexpr std::string_view kSystemMemPushbackEnabled{
       "system-mem-pushback-enabled"};
+  /// Shrink is running from within a container
+  static constexpr std::string_view kSystemMemUseMeminfo{
+      "system-mem-use-meminfo"};
+
   /// Specifies the system memory limit. Used to trigger memory pushback or heap
   /// dump. A value of zero means no limit is set.
   static constexpr std::string_view kSystemMemLimitGb{"system-mem-limit-gb"};
@@ -610,6 +614,8 @@ class SystemConfig : public ConfigBase {
   uint32_t systemMemoryGb() const;
 
   bool systemMemPushbackEnabled() const;
+
+  bool systemMemUseMeminfo() const;
 
   uint32_t systemMemLimitGb() const;
 
