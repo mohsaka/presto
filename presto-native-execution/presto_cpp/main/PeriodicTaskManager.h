@@ -107,6 +107,9 @@ class PeriodicTaskManager {
   void addPrestoExchangeSourceMemoryStatsTask();
   void updatePrestoExchangeSourceMemoryStats();
 
+  void addCacheShrinkTask();
+  void runCacheShrink(bool (*shrinkConditionFunc)());
+
   void addConnectorStatsTask();
 
   void addOperatingSystemStatsUpdateTask();
