@@ -55,6 +55,13 @@
 #include "velox/functions/prestosql/window/WindowFunctionsRegistration.h"
 #include "velox/serializers/PrestoSerializer.h"
 
+#include <folly/File.h>
+#include <folly/FileUtil.h>
+#include <sys/sysctl.h>
+#include <sys/sysinfo.h>
+#include <sys/types.h>
+#include <cinttypes>
+
 #ifdef PRESTO_ENABLE_REMOTE_FUNCTIONS
 #include "presto_cpp/main/RemoteFunctionRegisterer.h"
 #endif
@@ -519,13 +526,34 @@ void PrestoServer::run() {
   addAdditionalPeriodicTasks();
   periodicTaskManager_->start();
 
+  static long long containerMemoryLimit = 0;
+  unsigned long long minReserveGB = 5;
+  struct sysinfo memInfo;
   uint64_t systemMemLimitBytes = systemConfig->systemMemLimitGb();
   uint64_t systemMemShrinkBytes = systemConfig->systemMemShrinkGb();
+  auto containerMemoryLimitFile =
+      folly::File("/sys/fs/cgroup/memory/memory.limit_in_bytes", O_RDONLY);
+  // Enough storage for the container memory limit
+  std::array<char, 50> buf;
+
+  sysinfo(&memInfo);
+  if (!folly::readNoInt(
+          containerMemoryLimitFile.fd(), buf.data(), buf.size())) {
+    LOG(INFO)
+        << "/sys/fs/cgroup/memory/memory.limit_in_bytes not found or is empty. Using system limit";
+    containerMemoryLimit = memInfo.totalram;
+  } else if (sscanf(buf.data(), "%" SCNu64, &containerMemoryLimit) != 1) {
+    LOG(INFO) << "No integer value read. Using system limit";
+    containerMemoryLimit = memInfo.totalram;
+  }
+  LOG(INFO) << "System memory limit: " << containerMemoryLimit;
+
   linuxMemoryChecker_ =
       std::make_unique<LinuxMemoryChecker>(PeriodicMemoryChecker::Config{
-          1000, // memoryCheckerIntervalSec
+          100, // memoryCheckerIntervalSec
           systemConfig->systemMemPushbackEnabled(), // systemMemPushbackEnabled
-          systemMemLimitBytes << 30, // systemMemLimitBytes
+          //systemMemLimitBytes << 30, // systemMemLimitBytes
+          containerMemoryLimit - (minReserveGB << 30)
           systemMemShrinkBytes << 30, // systemMemShrinkBytes
           systemConfig->mallocMemHeapDumpEnabled(), // mallocMemHeapDumpEnabled
           systemConfig

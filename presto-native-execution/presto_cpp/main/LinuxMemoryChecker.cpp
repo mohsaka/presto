@@ -29,6 +29,11 @@
 
 #include <sys/stat.h>
 
+#include <sys/sysctl.h>
+#include <sys/sysinfo.h>
+#include <sys/types.h>
+#include <cinttypes>
+
 #endif
 
 namespace facebook::presto {
@@ -65,23 +70,8 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
 
   // cgroups not set up or explicitly using meminfo
   if(cgroupVersion == 0) {
-    static const boost::regex memAvailableRegex(
-        R"!(MemAvailable:\s*(\d+)\s*kB)!");
-    static const boost::regex memTotalRegex(R"!(MemTotal:\s*(\d+)\s*kB)!");
-    folly::gen::byLine("/proc/meminfo") | [&](folly::StringPiece line) -> void {
-      if (boost::regex_match(
-              line.begin(), line.end(), match, memAvailableRegex)) {
-        folly::StringPiece numStr(
-            line.begin() + match.position(1), size_t(match.length(1)));
-        memAvailable = folly::to<size_t>(numStr) * 1024;
-      }
-      if (boost::regex_match(line.begin(), line.end(), match, memTotalRegex)) {
-        folly::StringPiece numStr(
-            line.begin() + match.position(1), size_t(match.length(1)));
-        memTotal = folly::to<size_t>(numStr) * 1024;
-      }
-    };
-    return (memAvailable && memTotal) ? memTotal - memAvailable : 0;
+    sysinfo(&memInfo);
+    return (memInfo.totalram - memInfo.freeram) * memInfo.mem_unit;
   } else if (cgroupVersion == 1) {
     static const boost::regex inactiveAnonRegex(R"!(total_inactive_anon\s*(\d+)\s*)!");
     static const boost::regex activeAnonRegex(R"!(total_active_anon\s*(\d+)\s*)!");
