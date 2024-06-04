@@ -552,7 +552,7 @@ void PrestoServer::run() {
           100, // memoryCheckerIntervalSec
           systemConfig->systemMemPushbackEnabled(), // systemMemPushbackEnabled
           //systemMemLimitBytes << 30, // systemMemLimitBytes
-          containerMemoryLimit - (minReserveGB << 30)
+          containerMemoryLimit - (minReserveGB << 30),
           systemMemShrinkBytes << 30, // systemMemShrinkBytes
           systemConfig->mallocMemHeapDumpEnabled(), // mallocMemHeapDumpEnabled
           systemConfig

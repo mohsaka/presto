@@ -50,6 +50,7 @@ int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
   size_t inUseMemory = 0;
   boost::cmatch match;
   std::array<char, 50> buf;
+  struct sysinfo memInfo;
 
   // Find out what cgroup version we have
   if (cgroupVersion == -1) {
