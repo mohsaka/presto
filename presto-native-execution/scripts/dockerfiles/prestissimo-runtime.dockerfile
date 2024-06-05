@@ -10,8 +10,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG DEPENDENCY_IMAGE=presto/prestissimo-dependency:centos8
-ARG BASE_IMAGE=quay.io/centos/centos:stream8
+ARG DEPENDENCY_IMAGE=presto/prestissimo-dependency:centos9
+ARG BASE_IMAGE=quay.io/centos/centos:stream9
 FROM ${DEPENDENCY_IMAGE} as prestissimo-image
 
 ARG OSNAME=centos
@@ -27,6 +27,7 @@ RUN mkdir -p /prestissimo /runtime-libraries
 COPY . /prestissimo/
 RUN EXTRA_CMAKE_FLAGS=${EXTRA_CMAKE_FLAGS} \
     make -j${NUM_THREADS} --directory="/prestissimo/" cmake-and-build BUILD_TYPE=${BUILD_TYPE} BUILD_DIR=${BUILD_DIR} BUILD_BASE_DIR=${BUILD_BASE_DIR}
+RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/prestissimo.conf && echo "/usr/local/lib64" >> /etc/ld.so.conf.d/prestissimo.conf && ldconfig
 RUN ldd /prestissimo/${BUILD_BASE_DIR}/${BUILD_DIR}/presto_cpp/main/presto_server | awk 'NF == 4 { system("cp " $3 " /runtime-libraries") }'
 
 #/////////////////////////////////////////////
@@ -40,3 +41,4 @@ ENV BUILD_DIR=""
 
 COPY --chmod=0775 --from=prestissimo-image /prestissimo/${BUILD_BASE_DIR}/${BUILD_DIR}/presto_cpp/main/presto_server /usr/local/bin/
 COPY --chmod=0775 --from=prestissimo-image /runtime-libraries/* /usr/local/lib/
+RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/prestissimo.conf && ldconfig
