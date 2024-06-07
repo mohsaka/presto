@@ -33,82 +33,73 @@
 
 namespace facebook::presto {
 
-// Memory calculations from
-// https://docs.docker.com/reference/cli/docker/container/stats/#:~:text=On%20
-// Linux%2C%20the%20Docker%20CLI,use%20the%20data%20as%20needed
-// On Linux, the Docker CLI reports memory usage by subtracting cache usage from
-// the total memory usage. The API does not perform such a calculation but
-// rather provides the total memory usage and the amount from the cache so that
-// clients can use the data as needed. The cache usage is defined as the value
-// of total_inactive_file field in the memory.stat file on cgroup v1 hosts.
+// Current memory calculation used is inactive_anon + active_anon
+// Our first attempt was using memInfo memTotal - memAvailable.
+// However memInfo is not containerized so we reserve this as a
+// last resort.
 //
-// On Docker 19.03 and older, the cache usage was defined as the value of cache
-// field. On cgroup v2 hosts, the cache usage is defined as the value of
-// inactive_file field.
+// Next we tried to use what docker/kubernetes uses for their
+// calculation. cgroup usage_in_bytes - total_inactive_files.
+// However we found out that usage_in_bytes is a fuzz value
+// and has a chance for the sync to occur after the shrink
+// polling interval. This would result in double shrinks.
+//
+// Therefore we decided on values from the memory.stat file
+// that are real time statistics. At first we tried to use
+// the calculation suggested by the kernel team RSS+CACHE(+SWAP)
+// However we noticed that this value was not closely related to the
+// value in usage_in_bytes which is used to OOMKill. We then looked
+// at all of the values in the stat file and decided that
+// inactive_anon + active_anon moves closest to that of
+// usage_in_bytes
+//
+// NOTE: We do not know if cgroup V2 memory.current is a fuzz
+// value. It may be better than what we currently use. For
+// consistency we will match cgroup V1 and change if
+// necessary.
 
 int64_t LinuxMemoryChecker::systemUsedMemoryBytes() {
 #ifdef __linux__
-  static int cgroupVersion = -1;
+  static std::string statFile;
   size_t memAvailable = 0;
   size_t memTotal = 0;
-  size_t inUseMemory = 0;
-  size_t cacheMemory = 0;
+  size_t inactiveAnon = 0;
+  size_t activeAnon = 0;
   boost::cmatch match;
   std::array<char, 50> buf;
+  std::string memoryStatFileStr;
+  static const boost::regex inactiveAnonRegex(R"!(inactive_anon\s*(\d+)\s*)!");
+  static const boost::regex activeAnonRegex(R"!(active_anon\s*(\d+)\s*)!");
+
 
   // Find out what cgroup version we have
-  if (cgroupVersion == -1) {
+  if (statFile.empty()) {
     struct stat buffer;
-    if ((stat("/sys/fs/cgroup/memory/memory.usage_in_bytes", &buffer) == 0)) {
-      cgroupVersion = 1;
-    } else if ((stat("/sys/fs/cgroup/memory.current", &buffer) == 0)) {
-      cgroupVersion = 2;
+    if ((stat("/sys/fs/cgroup/memory/memory.stat", &buffer) == 0)) {
+      statFile = "/sys/fs/cgroup/memory/memory.stat";
+    } else if ((stat("/sys/fs/cgroup/memory.stat", &buffer) == 0)) {
+      statFile = "/sys/fs/cgroup/memory.stat";
     } else {
-      cgroupVersion = 0;
+      statFile = "None";
     }
-    LOG(INFO) << fmt::format("Using cgroup version {}", cgroupVersion);
+    LOG(INFO) << fmt::format("Using memory stat file {}", statFile);
   }
 
-  if (cgroupVersion == 1) {
-    auto currentMemoryUsageFile =
-        folly::File("/sys/fs/cgroup/memory/memory.usage_in_bytes", O_RDONLY);
-    static const boost::regex cacheRegex(R"!(total_inactive_file\s*(\d+)\s*)!");
-
-    // Read current in use memory from memory.usage_in_bytes
-    if (folly::readNoInt(currentMemoryUsageFile.fd(), buf.data(), buf.size())) {
-      if (sscanf(buf.data(), "%" SCNu64, &inUseMemory) == 1) {
-        // Get total cached memory from memory.stat and subtract from
-        // inUseMemory
-        folly::gen::byLine("/sys/fs/cgroup/memory/memory.stat") |
-            [&](folly::StringPiece line) -> void {
-          if (boost::regex_match(line.begin(), line.end(), match, cacheRegex)) {
-            folly::StringPiece numStr(
-                line.begin() + match.position(1), size_t(match.length(1)));
-            cacheMemory = folly::to<size_t>(numStr);
-          }
-        };
-        return inUseMemory - cacheMemory;
+  if (statFile != "None") {
+    folly::gen::byLine(statFile.c_str()) |
+        [&](folly::StringPiece line) -> void {
+      if (boost::regex_match(line.begin(), line.end(), match, inactiveAnonRegex)) {
+        folly::StringPiece numStr(
+            line.begin() + match.position(1), size_t(match.length(1)));
+        inactiveAnon = folly::to<size_t>(numStr);
       }
-    }
-  } else if (cgroupVersion == 2) {
-    auto currentMemoryUsageFile =
-        folly::File("/sys/fs/cgroup/memory.current", O_RDONLY);
-    static const boost::regex cacheRegex(R"!(inactive_file\s*(\d+)\s*)!");
-    if (folly::readNoInt(currentMemoryUsageFile.fd(), buf.data(), buf.size())) {
-      if (sscanf(buf.data(), "%" SCNu64, &inUseMemory) == 1) {
-        // Get total cached memory from memory.stat and subtract from
-        // inUseMemory
-        folly::gen::byLine("/sys/fs/cgroup/memory.stat") |
-            [&](folly::StringPiece line) -> void {
-          if (boost::regex_match(line.begin(), line.end(), match, cacheRegex)) {
-            folly::StringPiece numStr(
-                line.begin() + match.position(1), size_t(match.length(1)));
-            cacheMemory = folly::to<size_t>(numStr);
-          }
-        };
-        return inUseMemory - cacheMemory;
+      if (boost::regex_match(line.begin(), line.end(), match, activeAnonRegex)) {
+        folly::StringPiece numStr(
+            line.begin() + match.position(1), size_t(match.length(1)));
+        activeAnon = folly::to<size_t>(numStr);
       }
-    }
+    };
+    return inactiveAnon + activeAnon;
   }
 
   // Default case variables
