@@ -315,6 +315,29 @@ public abstract class AbstractTestNativeGeneralQueries
     }
 
     @Test
+    public void testIPAddressIPPrefix()
+    {
+        String tmpTableName = generateRandomTableName();
+        try {
+            getQueryRunner().execute("SELECT ip_prefix(CAST('192.168.255.255' AS IPADDRESS), 9)");
+            /*
+            getQueryRunner().execute(String.format("INSERT INTO %s VALUES (DECIMAL '0', DECIMAL '0'), (DECIMAL '1.2', DECIMAL '3.4'), "
+                    + "(DECIMAL '1000000.12', DECIMAL '28239823232323.57'), " +
+                    "(DECIMAL '-542392.89', DECIMAL '-6723982392109.29'), (NULL, NULL), "
+                    + "(NULL, DECIMAL'-6723982392109.29'),(DECIMAL'1.2', NULL)", tmpTableName));
+            assertUpdate(String.format("ANALYZE %s", tmpTableName), 7);
+            assertQuery(String.format("SHOW STATS for %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('c0', NULL,4.0 , 0.2857142857142857, NULL, '-542392.89', '1000000.12', NULL)," +
+                            "('c1', NULL,4.0 , 0.2857142857142857, NULL,  '-6.72398239210929E12', '2.823982323232357E13', NULL)," +
+                            "(NULL, NULL, NULL, NULL, 7.0, NULL, NULL, NULL))");*/
+        }
+        finally {
+            dropTableIfExists(tmpTableName);
+        }
+    }
+
+    @Test
     public void testTableSample()
     {
         // At best we can check for query success for the TABLESAMPLE based queries as the number of rows returned
