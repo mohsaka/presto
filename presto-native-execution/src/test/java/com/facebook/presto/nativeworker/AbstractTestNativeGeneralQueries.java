@@ -19,6 +19,8 @@ import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
+import com.facebook.presto.testing.MaterializedResult;
+import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.google.common.collect.ImmutableList;
@@ -315,26 +317,41 @@ public abstract class AbstractTestNativeGeneralQueries
     }
 
     @Test
-    public void testIPAddressIPPrefix()
-    {
+    public void testIPAddressIPPrefix() throws InterruptedException {
         String tmpTableName = generateRandomTableName();
         try {
-            getQueryRunner().execute("SELECT ip_prefix(CAST('192.168.255.255' AS IPADDRESS), 9)");
-            /*
-            getQueryRunner().execute(String.format("INSERT INTO %s VALUES (DECIMAL '0', DECIMAL '0'), (DECIMAL '1.2', DECIMAL '3.4'), "
-                    + "(DECIMAL '1000000.12', DECIMAL '28239823232323.57'), " +
-                    "(DECIMAL '-542392.89', DECIMAL '-6723982392109.29'), (NULL, NULL), "
-                    + "(NULL, DECIMAL'-6723982392109.29'),(DECIMAL'1.2', NULL)", tmpTableName));
-            assertUpdate(String.format("ANALYZE %s", tmpTableName), 7);
-            assertQuery(String.format("SHOW STATS for %s", tmpTableName),
+            getQueryRunner().execute(String.format("CREATE TABLE %s (ip VARCHAR, prefixSize  BIGINT)", tmpTableName));
+            getQueryRunner().execute(String.format("INSERT INTO %s VALUES " +
+                    "(VARCHAR '255.255.255.255', BIGINT '8'), " +
+                    "(VARCHAR '2001:0db8:85a3:0001:0001:8a2e:0370:7334', BIGINT '48')", tmpTableName));
+
+            MaterializedResult res = getQueryRunner().execute("show functions");
+            for(MaterializedRow r : res.getMaterializedRows()){
+                System.err.println(r.toString());
+            }
+/*
+            assertQuery("show functions LIKE '%IP_PREFIX%'",
                     "SELECT * FROM (VALUES" +
-                            "('c0', NULL,4.0 , 0.2857142857142857, NULL, '-542392.89', '1000000.12', NULL)," +
-                            "('c1', NULL,4.0 , 0.2857142857142857, NULL,  '-6.72398239210929E12', '2.823982323232357E13', NULL)," +
-                            "(NULL, NULL, NULL, NULL, 7.0, NULL, NULL, NULL))");*/
+                            "('a','b','c','d',true,'e',true, true, true, 'f'))");*/
+
+            assertQuery(String.format("SELECT CAST(ip_prefix(CAST(ip AS IPADDRESS), prefixSize) AS VARCHAR) FROM %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('255.0.0.0/8')," +
+                            "('2001:db8:85a3::/48'))");
+            /*
+            assertQuery(String.format("SELECT CAST(ip_prefix(ip, prefixSize) AS VARCHAR) FROM %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('255.0.0.0/8')," +
+                            "('2001:db8:85a3::/48'))");
+            assertQuery(String.format("SELECT CAST(ip_prefix(ip, prefixSize) AS VARCHAR) FROM %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('255.0.0.0/8')," +
+                            "('2001:db8:85a3::/48'))");*/
         }
         finally {
             dropTableIfExists(tmpTableName);
         }
+
     }
 
     @Test
