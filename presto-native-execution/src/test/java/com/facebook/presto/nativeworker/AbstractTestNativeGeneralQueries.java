@@ -315,6 +315,44 @@ public abstract class AbstractTestNativeGeneralQueries
     }
 
     @Test
+    public void testIPAddressIPPrefix() throws InterruptedException {
+        String tmpTableName = generateRandomTableName();
+        try {
+            getQueryRunner().execute(String.format("CREATE TABLE %s (ip VARCHAR, prefixSize  BIGINT)", tmpTableName));
+            getQueryRunner().execute(String.format("INSERT INTO %s VALUES " +
+                    "(VARCHAR '255.255.255.255', BIGINT '8'), " +
+                    "(VARCHAR '2001:0db8:85a3:0001:0001:8a2e:0370:7334', BIGINT '48')", tmpTableName));
+
+/*
+            MaterializedResult res = getQueryRunner().execute("show functions");
+            for(MaterializedRow r : res.getMaterializedRows()){
+                System.err.println(r.toString());
+            }
+            assertQuery("show functions LIKE '%IP_PREFIX%'",
+                    "SELECT * FROM (VALUES" +
+                            "('a','b','c','d',true,'e',true, true, true, 'f'))");*/
+
+            assertQuery(String.format("SELECT CAST(ip_prefix(CAST(ip AS IPADDRESS), prefixSize) AS VARCHAR) FROM %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('255.0.0.0/8')," +
+                            "('2001:db8:85a3::/48'))");
+            /*
+            assertQuery(String.format("SELECT CAST(ip_prefix(ip, prefixSize) AS VARCHAR) FROM %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('255.0.0.0/8')," +
+                            "('2001:db8:85a3::/48'))");
+            assertQuery(String.format("SELECT CAST(ip_prefix(ip, prefixSize) AS VARCHAR) FROM %s", tmpTableName),
+                    "SELECT * FROM (VALUES" +
+                            "('255.0.0.0/8')," +
+                            "('2001:db8:85a3::/48'))");*/
+        }
+        finally {
+            dropTableIfExists(tmpTableName);
+        }
+
+    }
+
+    @Test
     public void testTableSample()
     {
         // At best we can check for query success for the TABLESAMPLE based queries as the number of rows returned
