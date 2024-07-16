@@ -19,6 +19,8 @@ import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
+import com.facebook.presto.testing.MaterializedResult;
+import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.google.common.collect.ImmutableList;
@@ -323,11 +325,12 @@ public abstract class AbstractTestNativeGeneralQueries
                     "(VARCHAR '255.255.255.255', BIGINT '8'), " +
                     "(VARCHAR '2001:0db8:85a3:0001:0001:8a2e:0370:7334', BIGINT '48')", tmpTableName));
 
-/*
-            MaterializedResult res = getQueryRunner().execute("show functions");
+
+            MaterializedResult res = getQueryRunner().execute(String.format("EXPLAIN SELECT CAST(ip_prefix(CAST(ip AS IPADDRESS), prefixSize) AS VARCHAR) FROM %s", tmpTableName));
             for(MaterializedRow r : res.getMaterializedRows()){
                 System.err.println(r.toString());
             }
+            /*
             assertQuery("show functions LIKE '%IP_PREFIX%'",
                     "SELECT * FROM (VALUES" +
                             "('a','b','c','d',true,'e',true, true, true, 'f'))");*/
