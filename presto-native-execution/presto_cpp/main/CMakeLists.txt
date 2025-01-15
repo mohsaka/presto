@@ -100,7 +100,11 @@ set_property(TARGET presto_server_lib PROPERTY JOB_POOL_LINK
                                                presto_link_job_pool)
 
 add_executable(presto_server PrestoMain.cpp)
-target_link_options(presto_server BEFORE PUBLIC "-Wl,-undefined,dynamic_lookup")
+if(APPLE)
+    target_link_options(presto_server BEFORE PUBLIC "-Wl,-undefined,dynamic_lookup")
+else()
+    target_link_options(presto_server BEFORE PUBLIC "-Wl,-export-dynamic")
+endif()
 
 # Moving velox_hive_connector and velox_tpch_connector to presto_server_lib
 # results in multiple link errors similar to the one below only on GCC.
