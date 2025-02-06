@@ -267,7 +267,7 @@ public class AccessControlCheckerExecution
                 Thread.currentThread(),
                 timeoutThreadExecutor,
                 getQueryAnalyzerTimeout(getSession()))) {
-            queryAnalysis = queryAnalyzer.analyze(analyzerContext, preparedQuery);
+            queryAnalysis = queryAnalyzer.analyze(analyzerContext, preparedQuery, null);
         }
 
         stateMachine.beginColumnAccessPermissionChecking();
@@ -392,6 +392,7 @@ public class AccessControlCheckerExecution
         public AccessControlCheckerExecution createQueryExecution(
                 AnalyzerProvider analyzerProvider,
                 PreparedQuery preparedQuery,
+                PreparedQuery originalPreparedQuery,
                 QueryStateMachine stateMachine,
                 String slug,
                 int retryCount,

@@ -71,6 +71,7 @@ public class FeaturesConfig
     private static final String JOIN_SPILL_ENABLED = "experimental.join-spill-enabled";
     private static final String SINGLE_STREAM_SPILLER_CHOICE = "experimental.spiller.single-stream-spiller-choice";
 
+    private boolean queryRewriterPluginEnabled;
     private double cpuCostWeight = 75;
     private double memoryCostWeight = 10;
     private double networkCostWeight = 15;
@@ -1185,6 +1186,18 @@ public class FeaturesConfig
     {
         this.treatLowConfidenceZeroEstimationAsUnknownEnabled = treatLowConfidenceZeroEstimationAsUnknownEnabled;
         return this;
+    }
+
+    @Config("optimizer.is_query_rewriter_plugin_enabled")
+    public FeaturesConfig setQueryRewriterPluginEnabled(boolean queryRewriterPluginEnabled)
+    {
+        this.queryRewriterPluginEnabled = queryRewriterPluginEnabled;
+        return this;
+    }
+
+    public boolean isQueryRewriterPluginEnabled()
+    {
+        return queryRewriterPluginEnabled;
     }
 
     public boolean isSpillEnabled()
