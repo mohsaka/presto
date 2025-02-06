@@ -95,6 +95,7 @@ public class DDLDefinitionExecution<T extends Statement>
         public DDLDefinitionExecution<?> createQueryExecution(
                 AnalyzerProvider analyzerProvider,
                 PreparedQuery preparedQuery,
+                PreparedQuery originalPreparedQuery,
                 QueryStateMachine stateMachine,
                 String slug,
                 int retryCount,

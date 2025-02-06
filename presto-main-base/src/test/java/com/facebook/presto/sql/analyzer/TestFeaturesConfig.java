@@ -263,6 +263,7 @@ public class TestFeaturesConfig
                 .setPushdownSubfieldForMapFunctions(true)
                 .setInnerJoinPushdownEnabled(false)
                 .setBroadcastSemiJoinForDelete(true)
+                .setQueryRewriterPluginEnabled(false)
                 .setInEqualityJoinPushdownEnabled(false)
                 .setRewriteMinMaxByToTopNEnabled(false)
                 .setPrestoSparkExecutionEnvironment(false));
@@ -468,6 +469,7 @@ public class TestFeaturesConfig
                 .put("optimizer.broadcast-semi-join-for-delete", "false")
                 .put("optimizer.inequality-join-pushdown-enabled", "true")
                 .put("optimizer.rewrite-minBy-maxBy-to-topN-enabled", "true")
+                .put("optimizer.is_query_rewriter_plugin_enabled", "true")
                 .put("presto-spark-execution-environment", "true")
                 .put("single-node-execution-enabled", "true")
                 .put("native-execution-scale-writer-threads-enabled", "true")
@@ -688,6 +690,7 @@ public class TestFeaturesConfig
                 .setBroadcastSemiJoinForDelete(false)
                 .setRewriteMinMaxByToTopNEnabled(true)
                 .setInnerJoinPushdownEnabled(true)
+                .setQueryRewriterPluginEnabled(true)
                 .setPrestoSparkExecutionEnvironment(true);
         assertFullMapping(properties, expected);
     }

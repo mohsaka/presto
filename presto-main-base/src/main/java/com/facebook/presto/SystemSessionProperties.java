@@ -86,6 +86,10 @@ import static java.util.stream.Collectors.joining;
 
 public final class SystemSessionProperties
 {
+    public static final String IS_QUERY_REWRITER_PLUGIN_ENABLED = "is_query_rewriter_plugin_enabled";
+    public static final String IS_QUERY_REWRITER_PLUGIN_SUCCEEDED = "is_query_rewriter_plugin_succeeded";
+    public static final String USE_MATERIALIZED_VIEW = "use_materialized_views";
+
     public static final String OPTIMIZE_HASH_GENERATION = "optimize_hash_generation";
     public static final String JOIN_DISTRIBUTION_TYPE = "join_distribution_type";
     public static final String JOIN_MAX_BROADCAST_TABLE_SIZE = "join_max_broadcast_table_size";
@@ -1875,7 +1879,7 @@ public final class SystemSessionProperties
                         INEQUALITY_JOIN_PUSHDOWN_ENABLED,
                         "Enable Join Pushdown for Inequality Predicates",
                         featuresConfig.isInEqualityJoinPushdownEnabled(),
-                    false),
+                        false),
                 integerProperty(
                         NATIVE_MIN_COLUMNAR_ENCODING_CHANNELS_TO_PREFER_ROW_WISE_ENCODING,
                         "Minimum number of columnar encoding channels to consider row wise encoding for partitioned exchange. Native execution only",
@@ -1937,7 +1941,32 @@ public final class SystemSessionProperties
                 booleanProperty(ADD_DISTINCT_BELOW_SEMI_JOIN_BUILD,
                         "Add distinct aggregation below semi join build",
                         featuresConfig.isAddDistinctBelowSemiJoinBuild(),
+                        false),
+                booleanProperty(
+                        IS_QUERY_REWRITER_PLUGIN_ENABLED,
+                        "Use queries rewriter plugin",
+                        featuresConfig.isQueryRewriterPluginEnabled(),
+                        true),
+                booleanProperty(
+                        IS_QUERY_REWRITER_PLUGIN_SUCCEEDED,
+                        "Query rewrite success",
+                        false,
+                        true),
+                booleanProperty(
+                        USE_MATERIALIZED_VIEW,
+                        "Enable the use of materialized view for optimizer plus",
+                        false,
                         false));
+    }
+
+    public static boolean isQueryRewriterPluginSucceeded(Session session)
+    {
+        return session.getSystemProperty(IS_QUERY_REWRITER_PLUGIN_SUCCEEDED, Boolean.class);
+    }
+
+    public static boolean isQueryRewriterPluginEnabled(Session session)
+    {
+        return session.getSystemProperty(IS_QUERY_REWRITER_PLUGIN_ENABLED, Boolean.class);
     }
 
     public static boolean isSpoolingOutputBufferEnabled(Session session)
