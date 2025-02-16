@@ -227,22 +227,6 @@
         <module>presto-native-sql-invoked-functions-plugin</module>
     </modules>
 
-    <repositories>
-<!--        <repository>-->
-<!--            <id>central</id>-->
-<!--            <name>Central Repository</name>-->
-<!--            <url>https://repo.maven.apache.org/maven2</url>-->
-<!--            <layout>default</layout>-->
-<!--            <snapshots>-->
-<!--                <enabled>true</enabled>-->
-<!--            </snapshots>-->
-<!--        </repository>-->
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
-    </repositories>
-
     <dependencyManagement>
         <dependencies>
 
@@ -1082,7 +1066,7 @@
             <dependency>
                 <groupId>com.facebook.presto.hive</groupId>
                 <artifactId>hive-apache</artifactId>
-                <version>3.0.0-10</version>
+                <version>4.0.1-1-SNAPSHOT</version>
             </dependency>
 
             <dependency>
@@ -1194,7 +1178,7 @@
             <dependency>
                 <groupId>com.facebook.hive</groupId>
                 <artifactId>hive-dwrf</artifactId>
-                <version>0.8.7</version>
+                <version>0.8.8-SNAPSHOT</version>
             </dependency>
 
             <dependency>
@@ -1636,7 +1620,7 @@
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.14.1</version>
+                <version>0.16.0</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.apache.httpcomponents</groupId>
@@ -2381,6 +2365,10 @@
                     <exclusion>
                         <groupId>org.testng</groupId>
                         <artifactId>testng</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.facebook.presto.hive</groupId>
+                        <artifactId>hive-apache</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
