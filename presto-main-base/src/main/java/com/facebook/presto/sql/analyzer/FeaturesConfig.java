@@ -313,6 +313,10 @@ public class FeaturesConfig
 
     private boolean builtInSidecarFunctionsEnabled;
 
+    private boolean restrictCatalogEndpointsLocally = true;
+
+    private String ibmLhSecretPropsFile;
+
     public enum PartitioningPrecisionStrategy
     {
         // Let Presto decide when to repartition
@@ -3125,6 +3129,32 @@ public class FeaturesConfig
     public long getMaxSerializableObjectSize()
     {
         return maxSerializableObjectSize;
+    }
+
+    @Config("ibmlh-secret-props-file")
+    @ConfigDescription("IBM LH secret props file location")
+    public FeaturesConfig setIbmLhSecretPropsFile(String ibmLhSecretPropsFile)
+    {
+        this.ibmLhSecretPropsFile = ibmLhSecretPropsFile;
+        return this;
+    }
+
+    public String getIbmLhSecretPropsFile()
+    {
+        return ibmLhSecretPropsFile;
+    }
+
+    @Config("restrict-catalog-endpoints-locally")
+    @ConfigDescription("Restrict access to dynamic loading catalog to requests from localhost")
+    public FeaturesConfig setRestrictCatalogEndpointsLocally(boolean restrictCatalogEndpointsLocally)
+    {
+        this.restrictCatalogEndpointsLocally = restrictCatalogEndpointsLocally;
+        return this;
+    }
+
+    public boolean isRestrictCatalogEndpointsLocally()
+    {
+        return restrictCatalogEndpointsLocally;
     }
 
     @Config("built-in-sidecar-functions-enabled")
