@@ -488,6 +488,8 @@ public interface Metadata
 
     ProcedureRegistry getProcedureRegistry();
 
+    TableFunctionRegistry getTableFunctionRegistry();
+
     BlockEncodingSerde getBlockEncodingSerde();
 
     SessionPropertyManager getSessionPropertyManager();

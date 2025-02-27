@@ -19,44 +19,29 @@ import com.facebook.presto.common.transaction.TransactionId;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
+import com.facebook.presto.spi.ConnectorId;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.analyzer.AccessControlInfo;
 import com.facebook.presto.spi.analyzer.AccessControlInfoForTable;
 import com.facebook.presto.spi.analyzer.AccessControlReferences;
 import com.facebook.presto.spi.analyzer.AccessControlRole;
+import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionKind;
+import com.facebook.presto.spi.function.table.Argument;
+import com.facebook.presto.spi.function.table.ConnectorTableFunctionHandle;
 import com.facebook.presto.spi.security.AccessControl;
 import com.facebook.presto.spi.security.AccessControlContext;
 import com.facebook.presto.spi.security.AllowAllAccessControl;
 import com.facebook.presto.spi.security.Identity;
-import com.facebook.presto.sql.tree.ExistsPredicate;
-import com.facebook.presto.sql.tree.Expression;
-import com.facebook.presto.sql.tree.FunctionCall;
-import com.facebook.presto.sql.tree.GroupingOperation;
-import com.facebook.presto.sql.tree.Identifier;
-import com.facebook.presto.sql.tree.InPredicate;
-import com.facebook.presto.sql.tree.Join;
-import com.facebook.presto.sql.tree.LambdaArgumentDeclaration;
-import com.facebook.presto.sql.tree.Node;
-import com.facebook.presto.sql.tree.NodeRef;
-import com.facebook.presto.sql.tree.Offset;
-import com.facebook.presto.sql.tree.OrderBy;
-import com.facebook.presto.sql.tree.Parameter;
-import com.facebook.presto.sql.tree.QuantifiedComparisonExpression;
-import com.facebook.presto.sql.tree.Query;
-import com.facebook.presto.sql.tree.QuerySpecification;
-import com.facebook.presto.sql.tree.Relation;
-import com.facebook.presto.sql.tree.SampledRelation;
-import com.facebook.presto.sql.tree.Statement;
-import com.facebook.presto.sql.tree.SubqueryExpression;
-import com.facebook.presto.sql.tree.Table;
+import com.facebook.presto.sql.tree.*;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
@@ -1175,6 +1160,246 @@ public class Analysis
         public boolean isFromView()
         {
             return isFromView;
+        }
+    }
+
+    public static class TableArgumentAnalysis
+    {
+        private final String argumentName;
+        private final Optional<QualifiedName> name;
+        private final Relation relation;
+        private final Optional<List<Expression>> partitionBy; // it is allowed to partition by empty list
+        private final Optional<OrderBy> orderBy;
+        private final boolean pruneWhenEmpty;
+        private final boolean rowSemantics;
+        private final boolean passThroughColumns;
+
+        private TableArgumentAnalysis(
+                String argumentName,
+                Optional<QualifiedName> name,
+                Relation relation,
+                Optional<List<Expression>> partitionBy,
+                Optional<OrderBy> orderBy,
+                boolean pruneWhenEmpty,
+                boolean rowSemantics,
+                boolean passThroughColumns)
+        {
+            this.argumentName = requireNonNull(argumentName, "argumentName is null");
+            this.name = requireNonNull(name, "name is null");
+            this.relation = requireNonNull(relation, "relation is null");
+            this.partitionBy = requireNonNull(partitionBy, "partitionBy is null").map(ImmutableList::copyOf);
+            this.orderBy = requireNonNull(orderBy, "orderBy is null");
+            this.pruneWhenEmpty = pruneWhenEmpty;
+            this.rowSemantics = rowSemantics;
+            this.passThroughColumns = passThroughColumns;
+        }
+
+        public String getArgumentName()
+        {
+            return argumentName;
+        }
+
+        public Optional<QualifiedName> getName()
+        {
+            return name;
+        }
+
+        public Relation getRelation()
+        {
+            return relation;
+        }
+
+        public Optional<List<Expression>> getPartitionBy()
+        {
+            return partitionBy;
+        }
+
+        public Optional<OrderBy> getOrderBy()
+        {
+            return orderBy;
+        }
+
+        public boolean isPruneWhenEmpty()
+        {
+            return pruneWhenEmpty;
+        }
+
+        public boolean isRowSemantics()
+        {
+            return rowSemantics;
+        }
+
+        public boolean isPassThroughColumns()
+        {
+            return passThroughColumns;
+        }
+
+        public static Builder builder()
+        {
+            return new Builder();
+        }
+
+        public static final class Builder
+        {
+            private String argumentName;
+            private Optional<QualifiedName> name = Optional.empty();
+            private Relation relation;
+            private Optional<List<Expression>> partitionBy = Optional.empty();
+            private Optional<OrderBy> orderBy = Optional.empty();
+            private boolean pruneWhenEmpty;
+            private boolean rowSemantics;
+            private boolean passThroughColumns;
+
+            private Builder() {}
+
+            @CanIgnoreReturnValue
+            public Builder withArgumentName(String argumentName)
+            {
+                this.argumentName = argumentName;
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withName(QualifiedName name)
+            {
+                this.name = Optional.of(name);
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withRelation(Relation relation)
+            {
+                this.relation = relation;
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withPartitionBy(List<Expression> partitionBy)
+            {
+                this.partitionBy = Optional.of(partitionBy);
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withOrderBy(OrderBy orderBy)
+            {
+                this.orderBy = Optional.of(orderBy);
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withPruneWhenEmpty(boolean pruneWhenEmpty)
+            {
+                this.pruneWhenEmpty = pruneWhenEmpty;
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withRowSemantics(boolean rowSemantics)
+            {
+                this.rowSemantics = rowSemantics;
+                return this;
+            }
+
+            @CanIgnoreReturnValue
+            public Builder withPassThroughColumns(boolean passThroughColumns)
+            {
+                this.passThroughColumns = passThroughColumns;
+                return this;
+            }
+
+            public TableArgumentAnalysis build()
+            {
+                return new TableArgumentAnalysis(argumentName, name, relation, partitionBy, orderBy, pruneWhenEmpty, rowSemantics, passThroughColumns);
+            }
+        }
+    }
+
+    public static class TableFunctionInvocationAnalysis
+    {
+        private final ConnectorId connectorID;
+        private final String functionName;
+        private final Map<String, Argument> arguments;
+        private final List<TableArgumentAnalysis> tableArgumentAnalyses;
+        private final Map<String, List<Integer>> requiredColumns;
+        private final List<List<String>> copartitioningLists;
+        private final int properColumnsCount;
+        private final ConnectorTableFunctionHandle connectorTableFunctionHandle;
+        private final ConnectorTransactionHandle transactionHandle;
+
+        public TableFunctionInvocationAnalysis(
+                // Michael : Changed CatalogHandle -> ConnectorId
+                ConnectorId connectorID,
+                String functionName,
+                Map<String, Argument> arguments,
+                List<TableArgumentAnalysis> tableArgumentAnalyses,
+                Map<String, List<Integer>> requiredColumns,
+                List<List<String>> copartitioningLists,
+                int properColumnsCount,
+                ConnectorTableFunctionHandle connectorTableFunctionHandle,
+                ConnectorTransactionHandle transactionHandle)
+        {
+            this.connectorID = requireNonNull(connectorID, "connectorID is null");
+            this.functionName = requireNonNull(functionName, "functionName is null");
+            this.arguments = ImmutableMap.copyOf(arguments);
+            this.tableArgumentAnalyses = ImmutableList.copyOf(tableArgumentAnalyses);
+            this.requiredColumns = requiredColumns.entrySet().stream()
+                    .collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
+            this.copartitioningLists = ImmutableList.copyOf(copartitioningLists);
+            this.properColumnsCount = properColumnsCount;
+            this.connectorTableFunctionHandle = requireNonNull(connectorTableFunctionHandle, "connectorTableFunctionHandle is null");
+            this.transactionHandle = requireNonNull(transactionHandle, "transactionHandle is null");
+        }
+
+        public ConnectorId getConnectorId()
+        {
+            return connectorID;
+        }
+
+        public String getFunctionName()
+        {
+            return functionName;
+        }
+
+        public Map<String, Argument> getArguments()
+        {
+            return arguments;
+        }
+
+        public List<TableArgumentAnalysis> getTableArgumentAnalyses()
+        {
+            return tableArgumentAnalyses;
+        }
+
+        public Map<String, List<Integer>> getRequiredColumns()
+        {
+            return requiredColumns;
+        }
+
+        public List<List<String>> getCopartitioningLists()
+        {
+            return copartitioningLists;
+        }
+
+        /**
+         * Proper columns are the columns produced by the table function, as opposed to pass-through columns from input tables.
+         * Proper columns should be considered the actual result of the table function.
+         *
+         * @return the number of table function's proper columns
+         */
+        public int getProperColumnsCount()
+        {
+            return properColumnsCount;
+        }
+
+        public ConnectorTableFunctionHandle getConnectorTableFunctionHandle()
+        {
+            return connectorTableFunctionHandle;
+        }
+
+        public ConnectorTransactionHandle getTransactionHandle()
+        {
+            return transactionHandle;
         }
     }
 }

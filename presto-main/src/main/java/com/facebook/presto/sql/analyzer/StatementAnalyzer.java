@@ -33,6 +33,7 @@ import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.OperatorNotFoundException;
+import com.facebook.presto.metadata.TableFunctionRegistry;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.MaterializedViewDefinition;
@@ -315,8 +316,11 @@ class StatementAnalyzer
     private static final Logger log = Logger.get(StatementAnalyzer.class);
     private static final int UNION_DISTINCT_FIELDS_WARNING_THRESHOLD = 3;
     private final Analysis analysis;
+    // Michael: Metadata includes FunctionAndTypeManager(TransactionManager)
     private final Metadata metadata;
     private final FunctionAndTypeResolver functionAndTypeResolver;
+    // Michael: Added TableFunctionRegistry to Metadata as it has getProcedureRegistry.
+    // private final TableFunctionRegistry tableFunctionRegistry;
     private final Session session;
     private final SqlParser sqlParser;
     private final AccessControl accessControl;
