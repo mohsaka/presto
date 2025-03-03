@@ -860,4 +860,64 @@ public abstract class AstVisitor<R, C>
     {
         return visitNode(node, context);
     }
+
+    protected R visitTableFunctionInvocation(TableFunctionInvocation node, C context)
+    {
+        return visitRelation(node, context);
+    }
+
+    protected R visitTableFunctionArgument(TableFunctionArgument node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitEmptyTableTreatment(EmptyTableTreatment node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitTableArgument(TableFunctionTableArgument node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitDescriptor(Descriptor node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitDescriptorField(DescriptorField node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitDescriptorArgument(TableFunctionDescriptorArgument node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitGenericDataType(GenericDataType node, C context)
+    {
+        return visitDataType(node, context);
+    }
+
+    protected R visitDataType(DataType node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
+    protected R visitDataTypeParameter(DataTypeParameter node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitTypeParameter(TypeParameter node, C context)
+    {
+        return visitDataTypeParameter(node, context);
+    }
+
+    protected R visitNumericTypeParameter(NumericParameter node, C context)
+    {
+        return visitDataTypeParameter(node, context);
+    }
 }

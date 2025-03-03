@@ -844,6 +844,46 @@ public final class ExpressionTreeRewriter<C>
         }
 
         @Override
+        protected Expression visitGenericDataType(GenericDataType node, Context<C> context)
+        {
+            // Michael: TODO: Implement this correctly??
+            if (!context.isDefaultRewrite()) {
+                Expression result = rewriter.rewriteGenericDataType(node, context.get(), ExpressionTreeRewriter.this);
+                if (result != null) {
+                    return result;
+                }
+            }
+
+            Identifier name = rewrite(node.getName(), context.get());
+
+            ImmutableList.Builder<DataTypeParameter> arguments = ImmutableList.builder();
+            for (DataTypeParameter argument : node.getArguments()) {
+                if (argument instanceof NumericParameter) {
+                    arguments.add(argument);
+                }
+                else if (argument instanceof TypeParameter) {
+                    TypeParameter parameter = (TypeParameter) argument;
+                    DataType value = (DataType) process(parameter.getValue(), context);
+
+                    if (value != parameter.getValue()) {
+                        arguments.add(new TypeParameter(value));
+                    }
+                    else {
+                        arguments.add(argument);
+                    }
+                }
+            }
+
+            List<DataTypeParameter> rewrittenArguments = arguments.build();
+
+            if (name != node.getName() || !sameElements(rewrittenArguments, node.getArguments())) {
+                return new GenericDataType(node.getLocation(), name, rewrittenArguments);
+            }
+
+            return node;
+        }
+
+        @Override
         public Expression visitCast(Cast node, Context<C> context)
         {
             if (!context.isDefaultRewrite()) {
