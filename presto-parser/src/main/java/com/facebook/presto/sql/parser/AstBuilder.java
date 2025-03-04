@@ -50,6 +50,7 @@ import com.facebook.presto.sql.tree.Cube;
 import com.facebook.presto.sql.tree.CurrentTime;
 import com.facebook.presto.sql.tree.CurrentUser;
 import com.facebook.presto.sql.tree.DataType;
+import com.facebook.presto.sql.tree.DataTypeParameter;
 import com.facebook.presto.sql.tree.Deallocate;
 import com.facebook.presto.sql.tree.DecimalLiteral;
 import com.facebook.presto.sql.tree.Delete;
@@ -81,6 +82,7 @@ import com.facebook.presto.sql.tree.ExternalBodyReference;
 import com.facebook.presto.sql.tree.Extract;
 import com.facebook.presto.sql.tree.FrameBound;
 import com.facebook.presto.sql.tree.FunctionCall;
+import com.facebook.presto.sql.tree.GenericDataType;
 import com.facebook.presto.sql.tree.GenericLiteral;
 import com.facebook.presto.sql.tree.Grant;
 import com.facebook.presto.sql.tree.GrantRoles;
@@ -1613,6 +1615,16 @@ class AstBuilder
     @Override
     public Node visitDescriptorField(SqlBaseParser.DescriptorFieldContext context)
     {
+        /*
+        From trino
+        	public static class DescriptorFieldContext extends ParserRuleContext {
+		public IdentifierContext identifier() {
+			return getRuleContext(IdentifierContext.class,0);
+		}
+		public TypeContext type() {
+			return getRuleContext(TypeContext.class,0);
+		}
+         */
         return new DescriptorField(getLocation(context), (Identifier) visit(context.identifier()), visitIfPresent(context.type(), DataType.class));
     }
 
@@ -2310,8 +2322,6 @@ class AstBuilder
         return new CallArgument(getLocation(context), context.identifier().getText(), (Expression) visit(context.expression()));
     }
 
-    /*
-    MICHAEL: TODO: GENERIC TYPE REWRITE
     @Override
     public Node visitGenericType(SqlBaseParser.GenericTypeContext context)
     {
@@ -2322,7 +2332,6 @@ class AstBuilder
 
         return new GenericDataType(getLocation(context), (Identifier) visit(context.identifier()), parameters);
     }
-    */
 
     // ***************** helpers *****************
 

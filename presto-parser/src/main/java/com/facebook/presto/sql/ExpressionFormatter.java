@@ -39,6 +39,7 @@ import com.facebook.presto.sql.tree.Extract;
 import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.FrameBound;
 import com.facebook.presto.sql.tree.FunctionCall;
+import com.facebook.presto.sql.tree.GenericDataType;
 import com.facebook.presto.sql.tree.GenericLiteral;
 import com.facebook.presto.sql.tree.GroupingElement;
 import com.facebook.presto.sql.tree.GroupingOperation;
@@ -678,6 +679,21 @@ public final class ExpressionFormatter
         public String visitGroupingOperation(GroupingOperation node, Void context)
         {
             return "GROUPING (" + joinExpressions(node.getGroupingColumns()) + ")";
+        }
+
+        @Override
+        protected String visitGenericDataType(GenericDataType node, Void context)
+        {
+            StringBuilder result = new StringBuilder();
+            result.append(node.getName());
+
+            if (!node.getArguments().isEmpty()) {
+                result.append(node.getArguments().stream()
+                        .map(this::process)
+                        .collect(joining(", ", "(", ")")));
+            }
+
+            return result.toString();
         }
 
         private String formatBinaryExpression(String operator, Expression left, Expression right)

@@ -506,7 +506,11 @@ type
     | ROW '(' identifier type (',' identifier type)* ')'
     | baseType ('(' typeParameter (',' typeParameter)* ')')?
     | INTERVAL from=intervalField TO to=intervalField
-    | identifier ('(' typeParameter (',' typeParameter)* ')')?
+    | genericType
+    ;
+
+genericType
+    : identifier ('(' typeParameter (',' typeParameter)* ')')?
     ;
 
 typeParameter

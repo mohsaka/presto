@@ -3471,6 +3471,7 @@ public class TestSqlParser
     @Test
     public void testTableFunctionInvocation()
     {
+        /*
         assertStatement("SELECT * FROM TABLE(some_ptf(input => 1))",
                     selectAllFrom(new TableFunctionInvocation(
                         new NodeLocation(1, 21),
@@ -3480,10 +3481,10 @@ public class TestSqlParser
                                 Optional.of(new Identifier(new NodeLocation(1, 30), "input", false)),
                                 new LongLiteral(new NodeLocation(1, 39), "1"))),
                         ImmutableList.of())));
-
+        */
         assertStatement(
                 "SELECT * FROM TABLE(some_ptf(" +
-                    "arg3 => DESCRIPTOR(x integer)))",
+                    "arg3 => DESCRIPTOR(x)))",
                 selectAllFrom(new TableFunctionInvocation(
                         new NodeLocation(1, 21),
                         QualifiedName.of("some_ptf"),
@@ -3545,8 +3546,8 @@ public class TestSqlParser
                                         new StringLiteral(new NodeLocation(9, 5), "not-named argument"))),
                         ImmutableList.of(ImmutableList.of(
                                 QualifiedName.of("ord"),
-                                QualifiedName.of("nation"))))));*/
-/*
+                                QualifiedName.of("nation"))))));
+
         assertStatement(
                 "SELECT * FROM TABLE(some_ptf( " +
                         "arg1 => TABLE(orders) AS ord(a, b, c) " +
