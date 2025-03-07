@@ -15,8 +15,8 @@ package com.facebook.presto.spi.function.table;
 
 import javax.annotation.Nullable;
 
-import static com.facebook.presto.spi.function.table.ConnectorTableFunction.checkArgument;
-import static com.facebook.presto.spi.function.table.ConnectorTableFunction.checkNotNullOrEmpty;
+import static com.facebook.presto.spi.function.table.Preconditions.checkArgument;
+import static com.facebook.presto.spi.function.table.Preconditions.checkNotNullOrEmpty;
 
 /**
  * Abstract class to capture the three supported argument types for a table function:
@@ -36,7 +36,7 @@ public abstract class ArgumentSpecification
     // native representation
     private final Object defaultValue;
 
-    public ArgumentSpecification(String name, boolean required, @Nullable Object defaultValue)
+    ArgumentSpecification(String name, boolean required, @Nullable Object defaultValue)
     {
         this.name = checkNotNullOrEmpty(name, "name");
         checkArgument(!required || defaultValue == null, "non-null default value for a required argument");
