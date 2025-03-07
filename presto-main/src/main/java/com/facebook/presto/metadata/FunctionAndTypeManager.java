@@ -124,6 +124,7 @@ public class FunctionAndTypeManager
 {
     private static final Pattern DEFAULT_NAMESPACE_PREFIX_PATTERN = Pattern.compile("[a-z]+\\.[a-z]+");
     private final TransactionManager transactionManager;
+    private final TableFunctionRegistry tableFunctionRegistry;
     private final BlockEncodingSerde blockEncodingSerde;
     private final BuiltInTypeAndFunctionNamespaceManager builtInTypeAndFunctionNamespaceManager;
     private final FunctionInvokerProvider functionInvokerProvider;
@@ -140,6 +141,7 @@ public class FunctionAndTypeManager
     @Inject
     public FunctionAndTypeManager(
             TransactionManager transactionManager,
+            TableFunctionRegistry tableFunctionRegistry,
             BlockEncodingSerde blockEncodingSerde,
             FeaturesConfig featuresConfig,
             FunctionsConfig functionsConfig,
@@ -147,6 +149,7 @@ public class FunctionAndTypeManager
             Set<Type> types)
     {
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
+        this.tableFunctionRegistry = requireNonNull(tableFunctionRegistry, "tableFunctionRegistry is null");
         this.blockEncodingSerde = requireNonNull(blockEncodingSerde, "blockEncodingSerde is null");
         this.builtInTypeAndFunctionNamespaceManager = new BuiltInTypeAndFunctionNamespaceManager(blockEncodingSerde, functionsConfig, types, this);
         this.functionNamespaceManagers.put(JAVA_BUILTIN_NAMESPACE.getCatalogName(), builtInTypeAndFunctionNamespaceManager);
@@ -170,6 +173,7 @@ public class FunctionAndTypeManager
     {
         return new FunctionAndTypeManager(
                 createTestTransactionManager(),
+                new TableFunctionRegistry(),
                 new BlockEncodingManager(),
                 new FeaturesConfig(),
                 new FunctionsConfig(),
@@ -362,6 +366,11 @@ public class FunctionAndTypeManager
             throw new IllegalArgumentException(format("Resource group configuration manager '%s' is already registered", factory.getName()));
         }
         handleResolver.addFunctionNamespace(factory.getName(), factory.getHandleResolver());
+    }
+
+    public TableFunctionRegistry getTableFunctionRegistry()
+    {
+        return tableFunctionRegistry;
     }
 
     public void registerBuiltInFunctions(List<? extends SqlFunction> functions)

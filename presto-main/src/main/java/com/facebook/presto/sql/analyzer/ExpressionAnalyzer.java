@@ -110,6 +110,7 @@ import com.facebook.presto.sql.tree.TryExpression;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.sql.tree.Window;
 import com.facebook.presto.sql.tree.WindowFrame;
+import com.facebook.presto.transaction.NoOpTransactionManager;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -2023,7 +2024,7 @@ public class ExpressionAnalyzer
     {
         return new ExpressionAnalyzer(
                 metadata.getFunctionAndTypeManager().getFunctionAndTypeResolver(),
-                node -> new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session, warningCollector),
+                node -> new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, new NoOpTransactionManager(), session, warningCollector),
                 Optional.of(session.getSessionFunctions()),
                 session.getTransactionId(),
                 session.getSqlFunctionProperties(),
@@ -2046,7 +2047,7 @@ public class ExpressionAnalyzer
     {
         return new ExpressionAnalyzer(
                 metadata.getFunctionAndTypeManager().getFunctionAndTypeResolver(),
-                node -> new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session, warningCollector),
+                node -> new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, new NoOpTransactionManager(), session, warningCollector),
                 Optional.of(session.getSessionFunctions()),
                 session.getTransactionId(),
                 session.getSqlFunctionProperties(),

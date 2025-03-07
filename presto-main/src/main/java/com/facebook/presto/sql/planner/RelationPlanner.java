@@ -21,11 +21,13 @@ import com.facebook.presto.common.type.MapType;
 import com.facebook.presto.common.type.RowType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.metadata.TableFunctionHandle;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.VariableAllocator;
 import com.facebook.presto.spi.constraints.TableConstraint;
+import com.facebook.presto.spi.function.table.NameAndPosition;
 import com.facebook.presto.spi.plan.AggregationNode;
 import com.facebook.presto.spi.plan.Assignments;
 import com.facebook.presto.spi.plan.CteReferenceNode;
@@ -54,6 +56,7 @@ import com.facebook.presto.sql.planner.optimizations.JoinNodeUtils;
 import com.facebook.presto.sql.planner.optimizations.SampleNodeUtil;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode;
 import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.tree.AliasedRelation;
 import com.facebook.presto.sql.tree.Cast;
@@ -84,6 +87,7 @@ import com.facebook.presto.sql.tree.SampledRelation;
 import com.facebook.presto.sql.tree.SetOperation;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.sql.tree.Table;
+import com.facebook.presto.sql.tree.TableFunctionInvocation;
 import com.facebook.presto.sql.tree.TableSubquery;
 import com.facebook.presto.sql.tree.Union;
 import com.facebook.presto.sql.tree.Unnest;
@@ -221,6 +225,45 @@ class RelationPlanner
         context.incrementLeafNodes(session);
         PlanNode root = new TableScanNode(getSourceLocation(node.getLocation()), idAllocator.getNextId(), handle, outputVariables, columns.build(),
                 tableConstraints, TupleDomain.all(), TupleDomain.all(), Optional.empty());
+
+        return new RelationPlan(root, scope, outputVariables);
+    }
+
+    @Override
+    protected RelationPlan visitTableFunctionInvocation(TableFunctionInvocation node, SqlPlannerContext context)
+    {
+        Analysis.TableFunctionInvocationAnalysis functionAnalysis = analysis.getTableFunctionAnalysis(node);
+
+        // TODO handle input relations:
+        // 1. extract the input relations from node.getArguments() and plan them. Apply relation coercions if requested.
+        // 2. for each input relation, prepare the TableArgumentProperties record, consisting of:
+        //  - row or set semantics (from the actualArgument)
+        //  - prune when empty property  (from the actualArgument)
+        //  - pass through columns property (from the actualArgument)
+        //  - optional Specification: ordering scheme and partitioning (from the node's argument) <- planned upon the source's RelationPlan (or combined RelationPlan from all sources)
+        List<RelationPlan> sources = ImmutableList.of();
+        List<TableFunctionNode.TableArgumentProperties> inputRelationsProperties = ImmutableList.of();
+        // TODO rewrite column references to Symbols upon the source's RelationPlan (or combined RelationPlan from all sources)
+        Map<NameAndPosition, Symbol> inputDescriptorMappings = ImmutableMap.of();
+
+        Scope scope = analysis.getScope(node);
+
+        ImmutableList.Builder<VariableReferenceExpression> outputVariablesBuilder = ImmutableList.builder();
+        for (Field field : scope.getRelationType().getAllFields()) {
+            VariableReferenceExpression variable = variableAllocator.newVariable(getSourceLocation(node), field.getName().get(), field.getType());
+            outputVariablesBuilder.add(variable);
+        }
+
+        List<VariableReferenceExpression> outputVariables = outputVariablesBuilder.build();
+        PlanNode root = new TableFunctionNode(
+                idAllocator.getNextId(),
+                functionAnalysis.getFunctionName(),
+                functionAnalysis.getArguments(),
+                outputVariablesBuilder.build(),
+                sources.stream().map(RelationPlan::getRoot).collect(toImmutableList()),
+                inputRelationsProperties,
+                inputDescriptorMappings,
+                new TableFunctionHandle(functionAnalysis.getConnectorId(), functionAnalysis.getConnectorTableFunctionHandle(), functionAnalysis.getTransactionHandle()));
 
         return new RelationPlan(root, scope, outputVariables);
     }
