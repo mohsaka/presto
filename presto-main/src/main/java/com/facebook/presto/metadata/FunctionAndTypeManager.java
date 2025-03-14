@@ -373,6 +373,11 @@ public class FunctionAndTypeManager
         return tableFunctionRegistry;
     }
 
+    public TransactionManager getTransactionManager()
+    {
+        return transactionManager;
+    }
+
     public void registerBuiltInFunctions(List<? extends SqlFunction> functions)
     {
         builtInTypeAndFunctionNamespaceManager.registerBuiltInFunctions(functions);

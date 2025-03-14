@@ -31,6 +31,7 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.TimestampWithTimeZoneType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
+import com.facebook.presto.metadata.CatalogMetadata;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.OperatorNotFoundException;
 import com.facebook.presto.metadata.TableFunctionMetadata;
@@ -140,6 +141,7 @@ import com.facebook.presto.sql.tree.NodeLocation;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.Offset;
 import com.facebook.presto.sql.tree.OrderBy;
+import com.facebook.presto.sql.tree.Parameter;
 import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.Property;
 import com.facebook.presto.sql.tree.QualifiedName;
@@ -186,7 +188,6 @@ import com.facebook.presto.sql.tree.WindowFrame;
 import com.facebook.presto.sql.tree.With;
 import com.facebook.presto.sql.tree.WithQuery;
 import com.facebook.presto.sql.util.AstUtils;
-import com.facebook.presto.transaction.NoOpTransactionManager;
 import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -618,7 +619,7 @@ class StatementAnalyzer
                     metadata,
                     sqlParser,
                     new AllowAllAccessControl(),
-                    new NoOpTransactionManager(),
+                    transactionManager,
                     session,
                     warningCollector);
 
@@ -1293,10 +1294,9 @@ class StatementAnalyzer
 
             Map<String, Argument> passedArguments = analyzeArguments(node, function.getArguments(), node.getArguments());
 
-            // a call to getRequiredCatalogHandle() is necessary so that the catalog is recorded by the TransactionManager
+            CatalogMetadata registrationCatalogMetadata = transactionManager.getOptionalCatalogMetadata(session.getRequiredTransactionId(), connectorId.getCatalogName()).orElseThrow(() -> new IllegalStateException("Missing catalog metadata"));
             ConnectorTransactionHandle transactionHandle = transactionManager.getConnectorTransaction(
-                    session.getRequiredTransactionId(),
-                    connectorId);
+                    session.getRequiredTransactionId(), registrationCatalogMetadata.getConnectorId());
             TableFunctionAnalysis functionAnalysis = function.analyze(session.toConnectorSession(connectorId), transactionHandle, passedArguments);
             analysis.setTableFunctionAnalysis(node, new Analysis.TableFunctionInvocationAnalysis(connectorId, functionName.toString(), passedArguments, functionAnalysis.getHandle(), transactionHandle));
 
@@ -1372,11 +1372,11 @@ class StatementAnalyzer
                 throw new SemanticException(INVALID_ARGUMENTS, errorLocation, "Too many arguments. Expected at most %s arguments, got %s arguments", argumentSpecifications.size(), arguments.size());
             }
 
-            if (arguments.isEmpty()) {
+            if (argumentSpecifications.isEmpty()) {
                 return ImmutableMap.of();
             }
 
-            boolean argumentsPassedByName = arguments.stream().allMatch(argument -> argument.getName().isPresent());
+            boolean argumentsPassedByName = !arguments.isEmpty() && arguments.stream().allMatch(argument -> argument.getName().isPresent());
             boolean argumentsPassedByPosition = arguments.stream().allMatch(argument -> !argument.getName().isPresent());
             if (!argumentsPassedByName && !argumentsPassedByPosition) {
                 throw new SemanticException(INVALID_ARGUMENTS, errorLocation, "All arguments must be passed by name or all must be passed positionally");
@@ -1475,13 +1475,29 @@ class StatementAnalyzer
                 if (argument.getValue() instanceof FunctionCall && ((FunctionCall) argument.getValue()).getName().hasSuffix(QualifiedName.of("decsriptor"))) { // function name is always compared case-insensitive
                     throw new SemanticException(INVALID_FUNCTION_ARGUMENT, argument, "'descriptor' function is not allowed as a table function argument");
                 }
+                // inline parameters
+                Expression inlined = ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
+                {
+                    @Override
+                    public Expression rewriteParameter(Parameter node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+                    {
+                        if (analysis.isDescribe()) {
+                            // We cannot handle DESCRIBE when a table function argument involves a parameter.
+                            // In DESCRIBE, the parameter values are not known. We cannot pass a dummy value for a parameter.
+                            // The value of a table function argument can affect the returned relation type. The returned
+                            // relation type can affect the assumed types for other parameters in the query.
+                            throw new SemanticException(NOT_SUPPORTED, node, "DESCRIBE is not supported if a table function uses parameters");
+                        }
+                        return analysis.getParameters().get(NodeRef.of(node));
+                    }
+                }, expression);
                 Type expectedArgumentType = ((ScalarArgumentSpecification) argumentSpecification).getType();
                 // currently, only constant arguments are supported
-                Object constantValue = ExpressionInterpreter.evaluateConstantExpression(expression, expectedArgumentType, metadata, session, analysis.getParameters());
+                Object constantValue = ExpressionInterpreter.evaluateConstantExpression(inlined, expectedArgumentType, metadata, session, analysis.getParameters());
                 return ScalarArgument.builder()
                         .type(expectedArgumentType)
                         .value(constantValue)
-                        .build(); // TODO test coercion, test parameter
+                        .build();
             }
 
             throw new IllegalStateException("Unexpected argument specification: " + argumentSpecification.getClass().getSimpleName());
