@@ -29,6 +29,7 @@ import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.plan.AggregationNode;
 import com.facebook.presto.spi.plan.AggregationNode.Aggregation;
 import com.facebook.presto.spi.plan.Assignments;
+import com.facebook.presto.spi.plan.DataOrganizationSpecification;
 import com.facebook.presto.spi.plan.DeleteNode;
 import com.facebook.presto.spi.plan.FilterNode;
 import com.facebook.presto.spi.plan.LimitNode;
@@ -114,6 +115,7 @@ import static com.facebook.presto.sql.NodeUtils.getSortItemsFromOrderBy;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.isNumericType;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.getSourceLocation;
 import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static com.facebook.presto.sql.planner.OrderingTranslator.sortItemToSortOrder;
 import static com.facebook.presto.sql.planner.PlannerUtils.newVariable;
 import static com.facebook.presto.sql.planner.PlannerUtils.toOrderingScheme;
 import static com.facebook.presto.sql.planner.PlannerUtils.toSortOrder;
@@ -512,7 +514,7 @@ class QueryPlanner
      *
      * @return the new subplan and a mapping of each expression to the symbol representing the coercion or an existing symbol if a coercion wasn't needed
      */
-    private PlanAndMappings coerce(PlanBuilder subPlan, List<Expression> expressions, Analysis analysis, PlanNodeIdAllocator idAllocator, VariableAllocator variableAllocator, Metadata metadata)
+    public PlanAndMappings coerce(PlanBuilder subPlan, List<Expression> expressions, Analysis analysis, PlanNodeIdAllocator idAllocator, VariableAllocator variableAllocator, Metadata metadata)
     {
         Assignments.Builder assignments = Assignments.builder();
         assignments.putAll(subPlan.getRoot().getOutputVariables().stream().collect(toImmutableMap(Function.identity(), Function.identity())));
@@ -541,6 +543,28 @@ class QueryPlanner
                         subPlan.getRoot(),
                         assignments.build()));
         return new PlanAndMappings(subPlan, mappings.build());
+    }
+
+    public static OrderingScheme translateOrderingScheme(List<SortItem> items, Function<com.facebook.presto.sql.tree.Expression, VariableReferenceExpression> coercions)
+    {
+        List<VariableReferenceExpression> coerced = items.stream()
+                .map(SortItem::getSortKey)
+                .map(coercions)
+                .collect(toImmutableList());
+
+        ImmutableList.Builder<VariableReferenceExpression> variables = ImmutableList.builder();
+        Map<VariableReferenceExpression, Ordering> orders = new HashMap<>();
+        for (int i = 0; i < coerced.size(); i++) {
+            VariableReferenceExpression variable = coerced.get(i);
+            // for multiple sort items based on the same expression, retain the first one:
+            // ORDER BY x DESC, x ASC, y --> ORDER BY x DESC, y
+            if (!orders.containsKey(variable)) {
+                variables.add(variable);
+                orders.put(variable, new Ordering(variable, sortItemToSortOrder(items.get(i))));
+            }
+        }
+
+        return new OrderingScheme(new ArrayList<Ordering>(orders.values()));
     }
 
     private Map<VariableReferenceExpression, RowExpression> coerce(Iterable<? extends Expression> expressions, PlanBuilder subPlan, TranslationMap translations)
@@ -1069,7 +1093,7 @@ class QueryPlanner
                             subPlan.getRoot().getSourceLocation(),
                             idAllocator.getNextId(),
                             subPlan.getRoot(),
-                            new WindowNode.Specification(
+                            new DataOrganizationSpecification(
                                     partitionByVariables.build(),
                                     orderingScheme),
                             ImmutableMap.of(newVariable, function),
