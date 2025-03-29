@@ -1,0 +1,76 @@
+{
+  "settingsInheritedFrom": "whitesource-config/whitesource-config@master",
+  "scanSettings": {
+    "baseBranches": [
+      "master",
+      "wxd-v2.0.0",
+      "wxd-prestissimo-v2.0.0",
+      "redshift_vul_fix",
+      "issue_12430",
+      "fix_12181",
+      "deshee",
+      "otel_impl",
+      "aircompressor_vulfix",
+      "oss_scan_reload4j",
+      "fix_11236",
+      "dummy_req",
+      "ib_update_10138",
+      "feature-azure-storage-support",
+      "guava-update",
+      "snap",
+      "elastic-search_oss",
+      "feature_SqlServerUpgrade",
+      "newbranch",
+      "elasticsearch-vulnerability",
+      "google_oauth_client_new",
+      "google_oauth_rollback",
+      "gcs_13401_key_enc",
+      "security/mysql-connector-j",
+      "presto-router-dev-v2.0.0",
+      "db2fori_changes",
+      "oss_scan_onprem-v1.1.4",
+      "onprem-v1.1.4",
+      "JdbcJoinPushdown_NovTP",
+      "JdbcJoinPushdown_OSS_Review",
+      "otel_externalized",
+      "0.288-wb-feature",
+      "open-lineage-event",
+      "druid-upgrade-security-fix"
+    ],
+    "configMode": "LOCAL"
+  },
+  "hostRules": [
+    {
+      "matchHost": "https://na.artifactory.swg-devops.com/artifactory/hyc-cpd-skywalker-team-lakehouse-on-prem-docker-local/airlift/",
+      "hostType": "maven",
+      "userName": "lhdevuser@ibm.com",
+      "encrypted": {
+        "token": "wcBMA7q1Z1/iO+gDAQf+L/WVRxyBYXYF0se6C4GlEOQh0XE+Ok/zSiBPx+DXIXrQtsC2xhWVNIRrVO4XYfW1+byzTZGNsuoIPcskdRffB4Br92TPg2wCjCJOoe8Y6GgYhg/apkBFN6qNdO3Yu7HIRQnbuN1aPpp+vyAPNQ9gYmzpZSPvd4sRdnG0n21lFjX6eAnfc14ilm1dQVI0Nzp1kxFP7IQRRL7R69aaydFoW1I976Ms0jQbVVGvaIDtNGg0NFzVNoMEyz/Ox+XOo95DN2BCYWE0zKKsuzgMZIpeD9kV2jqpurYs0lW7cOIuiy8sH3EMYpU5IXWqUJngsftE1b1jQMUrIehnnaNGQ29pdNKQAV69W4cSxSOg8S6oHAM/BHHJubcwn4q3EBy0rG6kINEmnfi9QqeU/+BCsVIkXwPSiu5+dkgh+or/9yukwz/U9cBjwKPZrFJDzOed+3dH0GMdj3ux+PImPEPyNanq2i3cyVgSbhR1+pbmSxhDUwdl8N/WtiHDW0jys1TviGaDaSANJDQhFIpWc8KWWAJxj4LA"
+      }
+    },
+    {
+      "matchHost": "https://na.artifactory.swg-devops.com/artifactory/dataconn-maven-local/",
+      "hostType": "maven",
+      "userName": "lhdevuser@ibm.com",
+      "encrypted": {
+        "token": "wcBMA7q1Z1/iO+gDAQf+L/WVRxyBYXYF0se6C4GlEOQh0XE+Ok/zSiBPx+DXIXrQtsC2xhWVNIRrVO4XYfW1+byzTZGNsuoIPcskdRffB4Br92TPg2wCjCJOoe8Y6GgYhg/apkBFN6qNdO3Yu7HIRQnbuN1aPpp+vyAPNQ9gYmzpZSPvd4sRdnG0n21lFjX6eAnfc14ilm1dQVI0Nzp1kxFP7IQRRL7R69aaydFoW1I976Ms0jQbVVGvaIDtNGg0NFzVNoMEyz/Ox+XOo95DN2BCYWE0zKKsuzgMZIpeD9kV2jqpurYs0lW7cOIuiy8sH3EMYpU5IXWqUJngsftE1b1jQMUrIehnnaNGQ29pdNKQAV69W4cSxSOg8S6oHAM/BHHJubcwn4q3EBy0rG6kINEmnfi9QqeU/+BCsVIkXwPSiu5+dkgh+or/9yukwz/U9cBjwKPZrFJDzOed+3dH0GMdj3ux+PImPEPyNanq2i3cyVgSbhR1+pbmSxhDUwdl8N/WtiHDW0jys1TviGaDaSANJDQhFIpWc8KWWAJxj4LA"
+      }
+    },
+    {
+      "matchHost": "https://na.artifactory.swg-devops.com/artifactory/hyc-mpc-artifactory-team-generic-local/data-privacy/",
+      "hostType": "maven",
+      "userName": "lhdevuser@ibm.com",
+      "encrypted": {
+        "token": "wcBMA7q1Z1/iO+gDAQf+L/WVRxyBYXYF0se6C4GlEOQh0XE+Ok/zSiBPx+DXIXrQtsC2xhWVNIRrVO4XYfW1+byzTZGNsuoIPcskdRffB4Br92TPg2wCjCJOoe8Y6GgYhg/apkBFN6qNdO3Yu7HIRQnbuN1aPpp+vyAPNQ9gYmzpZSPvd4sRdnG0n21lFjX6eAnfc14ilm1dQVI0Nzp1kxFP7IQRRL7R69aaydFoW1I976Ms0jQbVVGvaIDtNGg0NFzVNoMEyz/Ox+XOo95DN2BCYWE0zKKsuzgMZIpeD9kV2jqpurYs0lW7cOIuiy8sH3EMYpU5IXWqUJngsftE1b1jQMUrIehnnaNGQ29pdNKQAV69W4cSxSOg8S6oHAM/BHHJubcwn4q3EBy0rG6kINEmnfi9QqeU/+BCsVIkXwPSiu5+dkgh+or/9yukwz/U9cBjwKPZrFJDzOed+3dH0GMdj3ux+PImPEPyNanq2i3cyVgSbhR1+pbmSxhDUwdl8N/WtiHDW0jys1TviGaDaSANJDQhFIpWc8KWWAJxj4LA"
+      }
+    },
+    {
+      "matchHost": "https://na.artifactory.swg-devops.com/artifactory/hyc-cpd-skywalker-team-lakehouse-on-prem-wxd-maven-local/",
+      "hostType": "maven",
+      "userName": "lhdevuser@ibm.com",
+      "encrypted": {
+        "token": "wcBMA7q1Z1/iO+gDAQf+L/WVRxyBYXYF0se6C4GlEOQh0XE+Ok/zSiBPx+DXIXrQtsC2xhWVNIRrVO4XYfW1+byzTZGNsuoIPcskdRffB4Br92TPg2wCjCJOoe8Y6GgYhg/apkBFN6qNdO3Yu7HIRQnbuN1aPpp+vyAPNQ9gYmzpZSPvd4sRdnG0n21lFjX6eAnfc14ilm1dQVI0Nzp1kxFP7IQRRL7R69aaydFoW1I976Ms0jQbVVGvaIDtNGg0NFzVNoMEyz/Ox+XOo95DN2BCYWE0zKKsuzgMZIpeD9kV2jqpurYs0lW7cOIuiy8sH3EMYpU5IXWqUJngsftE1b1jQMUrIehnnaNGQ29pdNKQAV69W4cSxSOg8S6oHAM/BHHJubcwn4q3EBy0rG6kINEmnfi9QqeU/+BCsVIkXwPSiu5+dkgh+or/9yukwz/U9cBjwKPZrFJDzOed+3dH0GMdj3ux+PImPEPyNanq2i3cyVgSbhR1+pbmSxhDUwdl8N/WtiHDW0jys1TviGaDaSANJDQhFIpWc8KWWAJxj4LA"
+      }
+    }
+  ]
+}
