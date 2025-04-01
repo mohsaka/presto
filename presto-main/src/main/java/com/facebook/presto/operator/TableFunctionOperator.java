@@ -17,7 +17,6 @@ import com.facebook.presto.common.Page;
 import com.facebook.presto.common.block.SortOrder;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.memory.context.LocalMemoryContext;
-import com.facebook.presto.operator.index.PageBuffer;
 import com.facebook.presto.spi.function.table.ConnectorTableFunctionHandle;
 import com.facebook.presto.spi.function.table.TableFunctionProcessorProvider;
 import com.facebook.presto.spi.plan.PlanNodeId;
@@ -222,7 +221,7 @@ public class TableFunctionOperator
 
     private final OperatorContext operatorContext;
 
-//    private final PageBuffer pageBuffer = new PageBuffer();
+    private final PageBuffer pageBuffer = new PageBuffer();
     private final WorkProcessor<Page> outputPages;
     private final boolean processEmptyInput;
 
@@ -642,4 +641,3 @@ public class TableFunctionOperator
         }
     }
 }
-

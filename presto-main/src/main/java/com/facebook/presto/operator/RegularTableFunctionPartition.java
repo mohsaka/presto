@@ -126,9 +126,9 @@ public class RegularTableFunctionPartition
                     return WorkProcessor.ProcessState.finished();
                 }
                 if (state instanceof TableFunctionProcessorState.Blocked) {
-                    return WorkProcessor.ProcessState.blocked(toListenableFuture(((TableFunctionProcessorState.Blocked)state).getFuture()));
+                    return WorkProcessor.ProcessState.blocked(toListenableFuture(((TableFunctionProcessorState.Blocked) state).getFuture()));
                 }
-                TableFunctionProcessorState.Processed processed = (TableFunctionProcessorState.Processed)state;
+                TableFunctionProcessorState.Processed processed = (TableFunctionProcessorState.Processed) state;
                 if (processed.isUsedInput()) {
                     inputPages = prepareInputPages();
                 }

@@ -16,7 +16,6 @@ package com.facebook.presto.connector.tvf;
 import com.facebook.presto.common.RuntimeStats;
 import com.facebook.presto.common.predicate.TupleDomain;
 import com.facebook.presto.common.type.Type;
-import com.facebook.presto.metadata.FunctionInvokerProvider;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorHandleResolver;
