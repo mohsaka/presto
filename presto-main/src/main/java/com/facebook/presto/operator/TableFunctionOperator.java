@@ -29,6 +29,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import javax.annotation.Nullable;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -220,9 +222,13 @@ public class TableFunctionOperator
 
     private final OperatorContext operatorContext;
 
-    private final PageBuffer pageBuffer = new PageBuffer();
+//    private final PageBuffer pageBuffer = new PageBuffer();
     private final WorkProcessor<Page> outputPages;
     private final boolean processEmptyInput;
+
+    @Nullable
+    private Page pendingInput;
+    private boolean operatorFinishing;
 
     public TableFunctionOperator(
             OperatorContext operatorContext,
@@ -267,7 +273,7 @@ public class TableFunctionOperator
         PagesIndex pagesIndex = pagesIndexFactory.newPagesIndex(sourceTypes, expectedPositions);
         HashStrategies hashStrategies = new HashStrategies(pagesIndex, partitionChannels, prePartitionedChannels, sortChannels, sortOrders, preSortedPrefix);
 
-        this.outputPages = pageBuffer.pages()
+        this.outputPages = WorkProcessor.create(new PagesSource())
                 .transform(new PartitionAndSort(pagesIndex, hashStrategies, processEmptyInput))
                 .flatMap(groupPagesIndex -> pagesIndexToTableFunctionPartitions(
                         groupPagesIndex,
@@ -292,7 +298,7 @@ public class TableFunctionOperator
     @Override
     public void finish()
     {
-        pageBuffer.finish();
+        operatorFinishing = true;
     }
 
     @Override
@@ -314,13 +320,20 @@ public class TableFunctionOperator
     @Override
     public boolean needsInput()
     {
-        return pageBuffer.isEmpty() && !pageBuffer.isFinished();
+        return pendingInput == null && !operatorFinishing;
     }
 
     @Override
     public void addInput(Page page)
     {
-        pageBuffer.add(page);
+        requireNonNull(page, "page is null");
+        checkState(pendingInput == null, "Operator already has pending input");
+
+        if (page.getPositionCount() == 0) {
+            return;
+        }
+
+        pendingInput = page;
     }
 
     @Override
@@ -607,6 +620,26 @@ public class TableFunctionOperator
                 return WorkProcessor.ProcessState.ofResult(partition);
             }
         });
+    }
+
+    private class PagesSource
+            implements WorkProcessor.Process<Page>
+    {
+        @Override
+        public WorkProcessor.ProcessState<Page> process()
+        {
+            if (operatorFinishing && pendingInput == null) {
+                return WorkProcessor.ProcessState.finished();
+            }
+
+            if (pendingInput != null) {
+                Page result = pendingInput;
+                pendingInput = null;
+                return WorkProcessor.ProcessState.ofResult(result);
+            }
+
+            return WorkProcessor.ProcessState.yield();
+        }
     }
 }
 

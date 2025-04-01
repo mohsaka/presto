@@ -308,7 +308,7 @@ public class PropertyDerivations
                     .local(localProperties.build())
                     .build()
                     // Crop properties to output columns.
-                    .translate(symbol -> node.getOutputVariables().contains(symbol) ? Optional.of(symbol) : Optional.empty());
+                    .translateVariable(variable -> node.getOutputVariables().contains(variable) ? Optional.of(variable) : Optional.empty());
         }
 
         @Override

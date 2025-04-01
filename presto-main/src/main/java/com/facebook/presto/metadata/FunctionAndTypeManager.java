@@ -554,6 +554,11 @@ public class FunctionAndTypeManager
         return functionNamespaceManager.get().getScalarFunctionImplementation(functionHandle);
     }
 
+    public TableFunctionProcessorProvider getTableFunctionProcessorProvider(TableFunctionHandle tableFunctionHandle)
+    {
+        return null;
+    }
+
     public AggregationFunctionImplementation getAggregateFunctionImplementation(FunctionHandle functionHandle)
     {
         Optional<FunctionNamespaceManager<?>> functionNamespaceManager = getServingFunctionNamespaceManager(functionHandle.getCatalogSchemaName());
@@ -589,12 +594,6 @@ public class FunctionAndTypeManager
                 implementation instanceof JavaScalarFunctionImplementation,
                 format("Implementation of function %s is not a JavaScalarFunctionImplementation", getFunctionMetadata(functionHandle).getName()));
         return (JavaScalarFunctionImplementation) implementation;
-    }
-
-    public TableFunctionProcessorProvider getTableFunctionProcessorProvider(TableFunctionHandle tableFunctionHandle)
-    {
-        //TODO
-        return null;
     }
 
     @VisibleForTesting

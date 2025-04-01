@@ -21,6 +21,18 @@ import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
 
+/**
+ * The result of processing input by {@link TableFunctionProcessor}.
+ * It can optionally include a portion of output data in the form of {@link Page}
+ * The returned {@link Page} should consist of:
+ * - proper columns produced by the table function
+ * - one column of type {@code BIGINT} for each table function's input table having the pass-through property (see {@link TableArgumentSpecification#isPassThroughColumns}),
+ * in order of the corresponding argument specifications. Entries in these columns are the indexes of input rows (from partition start) to be attached to output,
+ * or null to indicate that a row of nulls should be attached instead of an input row. The indexes are validated to be within the portion of the partition
+ * provided to the function so far.
+ * Note: when the input is empty, the only valid index value is null, because there are no input rows that could be attached to output. In such case, for performance
+ * reasons, the validation of indexes is skipped, and all pass-through columns are filled with nulls.
+ */
 public interface TableFunctionProcessorState
 {
     final class Blocked
