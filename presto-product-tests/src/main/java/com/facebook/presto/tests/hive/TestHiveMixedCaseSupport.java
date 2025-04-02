@@ -128,6 +128,8 @@ public class TestHiveMixedCaseSupport
 
         assertThat(query("SELECT * FROM " + SCHEMA_NAME + ".testtable"))
                 .containsOnly(row("amy", 112), row("mia", 123));
+        assertThat(query("SELECT name, ID FROM " + SCHEMA_NAME + ".testtable"))
+                .containsOnly(row("amy", 112), row("mia", 123));
         assertThat(query("SELECT * FROM " + SCHEMA_NAME + ".TESTTABLE2"))
                 .containsOnly(row("ann", 112), row("mary", 123));
         assertThat(query("SELECT * FROM " + SCHEMA_NAME_UPPER + ".testtable02"))
@@ -148,7 +150,7 @@ public class TestHiveMixedCaseSupport
      * It ensures that columns can be added renamed irrespective of case sensitivity.
      */
     @Test(groups = {MIXED_CASE}, dependsOnMethods = "testInsertDataWithMixedCaseNames")
-    public void testTableAlterWithMixedCaseNames()
+    public void testTableAlterWithMixedCaseNamesOSS()
     {
         query("ALTER TABLE " + SCHEMA_NAME + ".testtable ADD COLUMN num REAL");
         query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".testtable02 ADD COLUMN num1 REAL");
@@ -173,18 +175,82 @@ public class TestHiveMixedCaseSupport
                 .contains(row("numb01", "real", "", ""));
     }
 
-    @Test(groups = {MIXED_CASE}, dependsOnMethods = "testTableAlterWithMixedCaseNames")
-    public void testDropMixedCaseTablesAndSchemas()
+    /*
+     * This test verifies altering tables with different case variations in schema and table names.
+     * It ensures that columns can be added renamed irrespective of case sensitivity.
+     */
+    @Test(groups = {MIXED_CASE})
+    public void testTableAlterWithMixedCaseNamesInternalFixMe()
     {
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME + ".testtable");
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME + ".testtable0");
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME + ".TestTable1");
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME + ".TESTTABLE2");
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME_UPPER + ".TESTTABLE4");
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME_UPPER + ".testtable02");
-        query("DROP TABLE IF EXISTS " + SCHEMA_NAME_UPPER + ".TESTTABLE3");
+        // Add columns to tables with various schema and table name cases
+        query("ALTER TABLE " + SCHEMA_NAME + ".testtable ADD COLUMN num REAL");
+        query("ALTER TABLE " + SCHEMA_NAME + ".testtable ADD COLUMN NuM2 REAL");
 
-        query("DROP SCHEMA IF EXISTS " + SCHEMA_NAME);
-        query("DROP SCHEMA IF EXISTS " + SCHEMA_NAME_UPPER);
+        query("ALTER TABLE " + SCHEMA_NAME + ".TESTTABLE2 ADD COLUMN num01 REAL");
+        query("ALTER TABLE " + SCHEMA_NAME + ".TESTTABLE2 ADD COLUMN NuM2 REAL");
+
+        query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".testtable02 ADD COLUMN num1 REAL");
+        query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".TESTTABLE02 ADD COLUMN NuM2 REAL");
+        // Negative test: Creating a duplicate column with different case should fail in mysql
+        assertThat(() -> query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".TESTTABLE02 ADD COLUMN num2 REAL"))
+                .failsWithMessage("line 1:1: Column 'num2' already exists");
+
+        assertThat(query("DESCRIBE " + SCHEMA_NAME + ".testtable")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("num", "real", "", ""),
+                row("num2", "real", "", ""));
+
+        assertThat(query("DESCRIBE " + SCHEMA_NAME + ".TESTTABLE2")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("num01", "real", "", ""),
+                row("num2", "real", "", ""));
+
+        assertThat(query("DESCRIBE " + SCHEMA_NAME_UPPER + ".testtable02")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("num", "double", "", ""),
+                row("num1", "real", "", ""),
+                row("num2", "real", "", ""));
+
+        assertThat(query("DESCRIBE " + SCHEMA_NAME_UPPER + ".TESTTABLE02")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("num", "double", "", ""),
+                row("num1", "real", "", ""),
+                row("num2", "real", "", ""));
+
+        // Rename columns
+        query("ALTER TABLE " + SCHEMA_NAME + ".testtable RENAME COLUMN num TO numb");
+        query("ALTER TABLE " + SCHEMA_NAME + ".testtable RENAME COLUMN NuM2 TO NuM02");
+        query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".testtable02 RENAME COLUMN num1 TO numb01");
+        query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".testtable02 RENAME COLUMN NuM2 TO NuM02");
+
+        assertThat(query("DESCRIBE " + SCHEMA_NAME + ".testtable")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("numb", "real", "", ""),
+                row("num02", "real", "", ""));
+        assertThat(query("DESCRIBE " + SCHEMA_NAME_UPPER + ".testtable02")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("num", "double", "", ""),
+                row("numb01", "real", "", ""),
+                row("num02", "real", "", ""));
+
+        // drop column
+        query("ALTER TABLE " + SCHEMA_NAME + ".testtable DROP COLUMN NuM02");
+        query("ALTER TABLE " + SCHEMA_NAME_UPPER + ".testtable02 DROP COLUMN numb01");
+
+        assertThat(query("DESCRIBE " + SCHEMA_NAME + ".testtable")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("numb", "real", "", ""));
+        assertThat(query("DESCRIBE " + SCHEMA_NAME_UPPER + ".testtable02")).containsOnly(
+                row("name", "varchar(50)", "", ""),
+                row("id", "integer", "", ""),
+                row("num", "double", "", ""),
+                row("num02", "real", "", ""));
     }
 }
