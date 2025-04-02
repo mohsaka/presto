@@ -235,6 +235,7 @@ import com.facebook.presto.spi.function.SqlFunction;
 import com.facebook.presto.spi.function.SqlFunctionVisibility;
 import com.facebook.presto.spi.function.SqlInvokedFunction;
 import com.facebook.presto.spi.function.SqlInvokedScalarFunctionImplementation;
+import com.facebook.presto.spi.function.table.TableFunctionProcessorProvider;
 import com.facebook.presto.sql.analyzer.FunctionsConfig;
 import com.facebook.presto.type.BigintOperators;
 import com.facebook.presto.type.BooleanOperators;
@@ -1259,6 +1260,12 @@ public class BuiltInTypeAndFunctionNamespaceManager
             throwIfInstanceOf(e.getCause(), PrestoException.class);
             throw e;
         }
+    }
+
+    public TableFunctionProcessorProvider getTableFunctionProcessorProvider(FunctionHandle functionHandle, TypeManager typeManager)
+    {
+        //TODO
+        return null;
     }
 
     public Optional<Type> getType(TypeSignature typeSignature)

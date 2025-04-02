@@ -47,8 +47,10 @@ import com.facebook.presto.spi.connector.ConnectorRecordSetProvider;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
+import com.facebook.presto.spi.function.SchemaFunctionName;
 import com.facebook.presto.spi.function.table.ConnectorTableFunction;
 import com.facebook.presto.spi.function.table.ConnectorTableFunctionHandle;
+import com.facebook.presto.spi.function.table.TableFunctionProcessorProvider;
 import com.facebook.presto.spi.schedule.NodeSelectionStrategy;
 import com.facebook.presto.spi.statistics.TableStatistics;
 import com.facebook.presto.spi.transaction.IsolationLevel;
@@ -59,6 +61,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,6 +87,8 @@ public class MockConnectorFactory
     private final Supplier<TableStatistics> getTableStatistics;
     private final ApplyTableFunction applyTableFunction;
     private final Set<ConnectorTableFunction> tableFunctions;
+    private final TableFunctionProcessorProvider tableFunctionProcessorProvider;
+    private final Map<SchemaFunctionName, Function<ConnectorTableFunctionHandle, ConnectorSplitSource>> tableFunctionSplitsSources;
 
     private MockConnectorFactory(
             Function<ConnectorSession, List<String>> listSchemaNames,
@@ -92,7 +97,9 @@ public class MockConnectorFactory
             BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, MockConnectorColumnHandle>> getColumnHandles,
             Supplier<TableStatistics> getTableStatistics,
             ApplyTableFunction applyTableFunction,
-            Set<ConnectorTableFunction> tableFunctions)
+            Set<ConnectorTableFunction> tableFunctions,
+            TableFunctionProcessorProvider tableFunctionProcessorProvider,
+            Map<SchemaFunctionName, Function<ConnectorTableFunctionHandle, ConnectorSplitSource>> tableFunctionSplitsSources)
     {
         this.listSchemaNames = requireNonNull(listSchemaNames, "listSchemaNames is null");
         this.listTables = requireNonNull(listTables, "listTables is null");
@@ -101,6 +108,8 @@ public class MockConnectorFactory
         this.getTableStatistics = requireNonNull(getTableStatistics, "getTableStatistics is null");
         this.applyTableFunction = requireNonNull(applyTableFunction, "applyTableFunction is null");
         this.tableFunctions = requireNonNull(tableFunctions, "tableFunctions is null");
+        this.tableFunctionProcessorProvider = requireNonNull(tableFunctionProcessorProvider, "tableFunctionProcessorProvider is null");
+        this.tableFunctionSplitsSources = ImmutableMap.copyOf(tableFunctionSplitsSources);
     }
 
     @Override
@@ -118,7 +127,7 @@ public class MockConnectorFactory
     @Override
     public Connector create(String catalogName, Map<String, String> config, ConnectorContext context)
     {
-        return new MockConnector(context, listSchemaNames, listTables, getViews, getColumnHandles, getTableStatistics, applyTableFunction, tableFunctions);
+        return new MockConnector(context, listSchemaNames, listTables, getViews, getColumnHandles, getTableStatistics, applyTableFunction, tableFunctions, tableFunctionProcessorProvider, tableFunctionSplitsSources);
     }
 
     public static Builder builder()
@@ -155,6 +164,8 @@ public class MockConnectorFactory
         private final Supplier<TableStatistics> getTableStatistics;
         private final ApplyTableFunction applyTableFunction;
         private final Set<ConnectorTableFunction> tableFunctions;
+        private final TableFunctionProcessorProvider tableFunctionProcessorProvider;
+        private final Map<SchemaFunctionName, Function<ConnectorTableFunctionHandle, ConnectorSplitSource>> tableFunctionSplitsSources;
 
         public MockConnector(
                 ConnectorContext context,
@@ -164,7 +175,9 @@ public class MockConnectorFactory
                 BiFunction<ConnectorSession, ConnectorTableHandle, Map<String, MockConnectorColumnHandle>> getColumnHandles,
                 Supplier<TableStatistics> getTableStatistics,
                 ApplyTableFunction applyTableFunction,
-                Set<ConnectorTableFunction> tableFunctions)
+                Set<ConnectorTableFunction> tableFunctions,
+                TableFunctionProcessorProvider tableFunctionProcessorProvider,
+                Map<SchemaFunctionName, Function<ConnectorTableFunctionHandle, ConnectorSplitSource>> tableFunctionSplitsSources)
         {
             this.context = requireNonNull(context, "context is null");
             this.listSchemaNames = requireNonNull(listSchemaNames, "listSchemaNames is null");
@@ -174,6 +187,8 @@ public class MockConnectorFactory
             this.getTableStatistics = requireNonNull(getTableStatistics, "getTableStatistics is null");
             this.applyTableFunction = requireNonNull(applyTableFunction, "applyTableFunction is null");
             this.tableFunctions = requireNonNull(tableFunctions, "tableFunctions is null");
+            this.tableFunctionProcessorProvider = requireNonNull(tableFunctionProcessorProvider, "tableFunctionProcessorProvider is null");
+            this.tableFunctionSplitsSources = ImmutableMap.copyOf(tableFunctionSplitsSources);
         }
 
         @Override
@@ -222,6 +237,14 @@ public class MockConnectorFactory
                 {
                     return new FixedSplitSource(Collections.singleton(MockConnectorSplit.MOCK_CONNECTOR_SPLIT));
                 }
+
+                @Override
+                public ConnectorSplitSource getSplits(ConnectorTransactionHandle transaction, ConnectorSession session, SchemaFunctionName name, ConnectorTableFunctionHandle functionHandle)
+                {
+                    Function<ConnectorTableFunctionHandle, ConnectorSplitSource> splitSourceProvider = tableFunctionSplitsSources.get(name);
+                    requireNonNull(splitSourceProvider, "missing ConnectorSplitSource for table function " + name);
+                    return splitSourceProvider.apply(functionHandle);
+                }
             };
         }
 
@@ -241,6 +264,11 @@ public class MockConnectorFactory
         public Set<ConnectorTableFunction> getTableFunctions()
         {
             return tableFunctions;
+        }
+
+        public TableFunctionProcessorProvider getTableFunctionProcessorProvider()
+        {
+            return tableFunctionProcessorProvider;
         }
 
         private class MockConnectorMetadata
@@ -416,6 +444,8 @@ public class MockConnectorFactory
         private Supplier<TableStatistics> getTableStatistics = TableStatistics::empty;
         private ApplyTableFunction applyTableFunction = (session, handle) -> Optional.empty();
         private Set<ConnectorTableFunction> tableFunctions = ImmutableSet.of();
+        private TableFunctionProcessorProvider tableFunctionProcessorProvider;
+        private final Map<SchemaFunctionName, Function<ConnectorTableFunctionHandle, ConnectorSplitSource>> tableFunctionSplitsSources = new HashMap<>();
 
         public Builder withListSchemaNames(Function<ConnectorSession, List<String>> listSchemaNames)
         {
@@ -459,9 +489,21 @@ public class MockConnectorFactory
             return this;
         }
 
+        public Builder withTableFunctionProcessorProvider(TableFunctionProcessorProvider tableFunctionProcessorProvider)
+        {
+            this.tableFunctionProcessorProvider = requireNonNull(tableFunctionProcessorProvider, "tableFunctionProcessorProvider is null");
+            return this;
+        }
+
+        public Builder withTableFunctionSplitSource(SchemaFunctionName name, Function<ConnectorTableFunctionHandle, ConnectorSplitSource> sourceProvider)
+        {
+            tableFunctionSplitsSources.put(name, sourceProvider);
+            return this;
+        }
+
         public MockConnectorFactory build()
         {
-            return new MockConnectorFactory(listSchemaNames, listTables, getViews, getColumnHandles, getTableStatistics, applyTableFunction, tableFunctions);
+            return new MockConnectorFactory(listSchemaNames, listTables, getViews, getColumnHandles, getTableStatistics, applyTableFunction, tableFunctions, tableFunctionProcessorProvider, tableFunctionSplitsSources);
         }
 
         private static <T> T notSupported()
