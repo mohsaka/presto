@@ -76,8 +76,8 @@ import static com.facebook.presto.hive.HiveTestUtils.getDefaultHiveRecordCursorP
 import static com.facebook.presto.hive.HiveType.HIVE_LONG;
 import static com.facebook.presto.hive.HiveUtil.CUSTOM_FILE_SPLIT_CLASS_KEY;
 import static com.facebook.presto.hive.TestHivePageSink.getColumnHandles;
-import static com.facebook.presto.hive.metastore.thrift.MockHiveMetastoreClient.TEST_DATABASE;
-import static com.facebook.presto.hive.metastore.thrift.MockHiveMetastoreClient.TEST_TABLE;
+import static com.facebook.presto.hive.metastore.hms.MockHiveMetastoreClient.TEST_DATABASE;
+import static com.facebook.presto.hive.metastore.hms.MockHiveMetastoreClient.TEST_TABLE;
 import static com.facebook.presto.hive.util.HudiRealtimeSplitConverter.HUDI_BASEPATH_KEY;
 import static com.facebook.presto.hive.util.HudiRealtimeSplitConverter.HUDI_DELTA_FILEPATHS_KEY;
 import static com.facebook.presto.hive.util.HudiRealtimeSplitConverter.HUDI_MAX_COMMIT_TIME_KEY;

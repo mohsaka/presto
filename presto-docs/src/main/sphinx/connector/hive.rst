@@ -111,8 +111,8 @@ security options in the Hive connector.
 File-Based Metastore
 ^^^^^^^^^^^^^^^^^^^^
 
-For testing or development purposes, this connector can be configured to use a local 
-filesystem directory as a Hive Metastore. See :ref:`installation/deployment:File-Based Metastore`.  
+For testing or development purposes, this connector can be configured to use a local
+filesystem directory as a Hive Metastore. See :ref:`installation/deployment:File-Based Metastore`.
 
 Hive Configuration Properties
 -----------------------------
@@ -125,7 +125,8 @@ Property Name                                            Description            
                                                          URI is used by default and the rest of the URIs are
                                                          fallback metastores. This property is required.
                                                          Example: ``thrift://192.0.2.3:9083`` or
-                                                         ``thrift://192.0.2.3:9083,thrift://192.0.2.4:9083``
+                                                         ``thrift://192.0.2.3:9083,thrift://192.0.2.4:9083`` or
+                                                         ``https://192.0.2.3:10001 ``
 
 ``hive.metastore.username``                              The username Presto will use to access the Hive metastore.
 
@@ -300,6 +301,35 @@ Property Name                                                         Descriptio
 ``hive.metastore.thrift.client.tls.truststore-path``     Path to the PEM or JKS trust store.                             NONE
 
 ``hive.metastore.thrift.client.tls.truststore-password`` Password for the trust store.                                   NONE
+
+``hive.metastore.http.client.tls.enabled``               Whether TLS security is enabled for http mode                   NONE
+
+``hive.metastore.http.client.tls.truststore-path``       Path to the PEM or JKS trust store for http mode.               NONE
+
+``hive.metastore.http.client.tls.truststore-password``   Password for the trust store for http mode.                     NONE
+
+``hive.metastore.http.client.tls.keystore-path``         Path to the PEM or JKS key store for http mode.                 NONE
+
+``hive.metastore.http.client.tls.keystore-password``     Password for the key store for http mode.                       NONE
+
+``hive.metastore.http.client.authentication.type``       Hive metastore authentication type for http mode.               NONE
+                                                         Possible values are ``NONE`` , ``BASIC`` or ``BEARER``.
+
+``hive.metastore.http.client.bearer-token``              Bearer token required for http mode authentication when         NONE
+                                                         ``hive.metastore.http.client.authentication.type`` set to
+                                                         ``BEARER``
+
+``hive.metastore.http.client.auth.basic.username``       Client username required for http mode authentication when      NONE
+                                                         ``hive.metastore.http.client.authentication.type`` set to
+                                                         ``BASIC``
+``hive.metastore.http.client.auth.basic.password``       Client password required for http mode authentication when      NONE
+                                                         ``hive.metastore.http.client.authentication.type`` set to
+                                                         ``BASIC``
+
+``hive.metastore.http.client.read-timeout``              Timeout for Hive metastore requests via http.                   ``60s``
+
+``hive.metastore.http.client.additional-headers``        Additional Details can be passed to metastore using this        NONE
+                                                         property in http mode.
 
 ======================================================== ============================================================= ============
 
@@ -1213,19 +1243,19 @@ SQL DELETE
 CSV Format Type Limitations
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-When creating tables with CSV format, all columns must be defined as ``VARCHAR`` due to 
-the underlying OpenCSVSerde limitations. `OpenCSVSerde <https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/OpenCSVSerde.java>`_ deserializes all CSV columns 
+When creating tables with CSV format, all columns must be defined as ``VARCHAR`` due to
+the underlying OpenCSVSerde limitations. `OpenCSVSerde <https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/OpenCSVSerde.java>`_ deserializes all CSV columns
 as strings only. Using any other data type will result in an error similar to the following::
 
-  CREATE TABLE hive.csv.csv_fail ( 
-    id BIGINT, 
-    value INT, 
+  CREATE TABLE hive.csv.csv_fail (
+    id BIGINT,
+    value INT,
     date_col DATE
   ) with ( format = 'CSV' ) ;
 
 .. code-block:: none
 
-    Query failed: Hive CSV storage format only supports VARCHAR (unbounded). 
+    Query failed: Hive CSV storage format only supports VARCHAR (unbounded).
     Unsupported columns: id integer, value integer, date_col date
 
 To work with other data types when using CSV format:
@@ -1245,7 +1275,7 @@ Example::
 
     -- Then create a view with the proper data types
     CREATE VIEW hive.csv.csv_data_view AS
-    SELECT 
+    SELECT
         CAST(id AS BIGINT) AS id,
         CAST(value AS INT) AS value,
         CAST(date_col AS DATE) AS date_col
@@ -1253,7 +1283,7 @@ Example::
 
     -- OR another table with the proper data types
     CREATE TABLE hive.csv.csv_data_cast AS
-    SELECT 
+    SELECT
         CAST(id AS BIGINT) AS id,
         CAST(value AS INT) AS value,
         CAST(date_col AS DATE) AS date_col
