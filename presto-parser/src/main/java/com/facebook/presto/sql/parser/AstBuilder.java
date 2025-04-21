@@ -1612,7 +1612,7 @@ class AstBuilder
     @Override
     public Node visitDescriptorField(SqlBaseParser.DescriptorFieldContext context)
     {
-        return new DescriptorField(getLocation(context), (Identifier) visit(context.identifier()), Optional.of(getType(context.type())));
+        return new DescriptorField(getLocation(context), (Identifier) visit(context.identifier()), visitIfPresent(context.type(), String.class));
     }
 
     @Override
