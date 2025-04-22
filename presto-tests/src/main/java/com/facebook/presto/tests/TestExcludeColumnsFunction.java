@@ -50,8 +50,8 @@ public class TestExcludeColumnsFunction
     @Test
     public void testExcludeColumnsFunction()
     {
-        //assertQuery("SELECT * FROM tpch.tiny.nation",
-        //        "SELECT nationkey, name, regionkey, comment FROM tpch.tiny.nation");
+        assertQuery("SELECT * FROM tpch.tiny.nation",
+                "SELECT nationkey, name, regionkey, comment FROM tpch.tiny.nation");
 
         assertQuery("SELECT * " +
                 "FROM TABLE(exclude_columns( " +
@@ -69,23 +69,23 @@ public class TestExcludeColumnsFunction
     @Test
     public void testInvalidArgument()
     {
-//        assertQueryFails("SELECT *\n" +
-//                "FROM TABLE(exclude_columns(\n" +
-//                "                    input => TABLE(tpch.tiny.nation),\n" +
-//                "                    columns => CAST(null AS DESCRIPTOR)))\n",
-//                "COLUMNS descriptor is null");
-//
-//        assertQueryFailsExact("SELECT *\n" +
-//                        "FROM TABLE(exclude_columns(\n" +
-//                        "                    input => TABLE(tpch.tiny.nation),\n" +
-//                        "                    columns => DESCRIPTOR()))\n",
-//                "line 4:21: Invalid descriptor argument COLUMNS. Descriptors should be formatted as 'DESCRIPTOR(name [type], ...)'");
-//
-//        assertQueryFailsExact("SELECT *\n" +
-//                        "FROM TABLE(exclude_columns(\n" +
-//                        "                    input => TABLE(tpch.tiny.nation),\n" +
-//                        "                    columns => DESCRIPTOR(foo, comment, bar)))\n",
-//                "Excluded columns: [foo, bar] not present in the table");
+        assertQueryFails("SELECT *\n" +
+                "FROM TABLE(exclude_columns(\n" +
+                "                    input => TABLE(tpch.tiny.nation),\n" +
+                "                    columns => CAST(null AS DESCRIPTOR)))\n",
+                "COLUMNS descriptor is null");
+
+        assertQueryFailsExact("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR()))\n",
+                "line 4:21: Invalid descriptor argument COLUMNS. Descriptors should be formatted as 'DESCRIPTOR(name [type], ...)'");
+
+        assertQueryFailsExact("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(foo, comment, bar)))\n",
+                "Excluded columns: [foo, bar] not present in the table");
 
         assertQueryFails("SELECT *\n" +
                         "FROM TABLE(exclude_columns(\n" +
@@ -93,11 +93,11 @@ public class TestExcludeColumnsFunction
                         "                    columns => DESCRIPTOR(nationkey bigint, comment)))\n",
                 "COLUMNS descriptor contains types");
 
-//        assertQueryFails("SELECT *\n" +
-//                        "FROM TABLE(exclude_columns(\n" +
-//                        "                    input => TABLE(tpch.tiny.nation),\n" +
-//                        "                    columns => DESCRIPTOR(nationkey, name, regionkey, comment)))\n",
-//                "All columns are excluded");
+        assertQueryFails("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(nationkey, name, regionkey, comment)))\n",
+                "All columns are excluded");
     }
 
     @Test

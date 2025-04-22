@@ -383,7 +383,7 @@ public final class QueryAssertions
             }
         }
         else {
-            if (!(exact? nullToEmpty(exception.getMessage()).equals(regex) : nullToEmpty(exception.getMessage()).matches(regex))) {
+            if (!(exact ? nullToEmpty(exception.getMessage()).equals(regex) : nullToEmpty(exception.getMessage()).matches(regex))) {
                 fail(format("Expected exception message '%s' to match '%s' for query: %s", exception.getMessage(), regex, sql), exception);
             }
         }
