@@ -59,172 +59,142 @@ public class TestExcludeColumnsFunction
                 "                    columns => DESCRIPTOR(comment)))",
                 "SELECT nationkey, name, regionkey FROM tpch.tiny.nation");
 
-/*
         assertQuery("SELECT * " +
                 "FROM TABLE(exclude_columns( " +
                 "                    input => TABLE(tpch.tiny.nation), " +
                 "                    columns => DESCRIPTOR(regionkey, nationkey)))",
-                "SELECT name, comment FROM tpch.tiny.nation");*/
+                "SELECT name, comment FROM tpch.tiny.nation");
     }
-    /*
+
     @Test
     public void testInvalidArgument()
     {
-        assertThatThrownBy(() -> query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => CAST(null AS DESCRIPTOR)))
-                """))
-                .hasMessage("COLUMNS descriptor is null");
+//        assertQueryFails("SELECT *\n" +
+//                "FROM TABLE(exclude_columns(\n" +
+//                "                    input => TABLE(tpch.tiny.nation),\n" +
+//                "                    columns => CAST(null AS DESCRIPTOR)))\n",
+//                "COLUMNS descriptor is null");
+//
+//        assertQueryFailsExact("SELECT *\n" +
+//                        "FROM TABLE(exclude_columns(\n" +
+//                        "                    input => TABLE(tpch.tiny.nation),\n" +
+//                        "                    columns => DESCRIPTOR()))\n",
+//                "line 4:21: Invalid descriptor argument COLUMNS. Descriptors should be formatted as 'DESCRIPTOR(name [type], ...)'");
+//
+//        assertQueryFailsExact("SELECT *\n" +
+//                        "FROM TABLE(exclude_columns(\n" +
+//                        "                    input => TABLE(tpch.tiny.nation),\n" +
+//                        "                    columns => DESCRIPTOR(foo, comment, bar)))\n",
+//                "Excluded columns: [foo, bar] not present in the table");
 
-        assertThatThrownBy(() -> query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR()))
-                """))
-                .hasMessage("line 4:21: Invalid descriptor argument COLUMNS. Descriptors should be formatted as 'DESCRIPTOR(name [type], ...)'");
+        assertQueryFails("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(nationkey bigint, comment)))\n",
+                "COLUMNS descriptor contains types");
 
-        assertThatThrownBy(() -> query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(foo, comment, bar)))
-                """))
-                .hasMessage("Excluded columns: [foo, bar] not present in the table");
-
-        assertThatThrownBy(() -> query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(nationkey bigint, comment)))
-                """))
-                .hasMessage("COLUMNS descriptor contains types");
-
-        assertThatThrownBy(() -> query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(nationkey, name, regionkey, comment)))
-                """))
-                .hasMessage("All columns are excluded");
+//        assertQueryFails("SELECT *\n" +
+//                        "FROM TABLE(exclude_columns(\n" +
+//                        "                    input => TABLE(tpch.tiny.nation),\n" +
+//                        "                    columns => DESCRIPTOR(nationkey, name, regionkey, comment)))\n",
+//                "All columns are excluded");
     }
 
     @Test
     public void testColumnResolution()
     {
         // excluded column names are matched case-insensitive
-        assertThat(query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(SELECT 1, 2, 3, 4, 5) t(a, B, "c", "D", e),
-                                    columns => DESCRIPTOR("A", "b", C, d)))
-                """))
-                .matches("SELECT 5");
+        assertQuery("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(SELECT 1, 2, 3, 4, 5) t(a, B, \"c\", \"D\", e),\n" +
+                        "                    columns => DESCRIPTOR(\"A\", \"b\", C, d)))\n",
+                "SELECT 5");
     }
 
     @Test
     public void testReturnedColumnNames()
     {
         // the function preserves the incoming column names. (However, due to how the analyzer handles identifiers, these are not the canonical names according to the SQL identifier semantics.)
-        assertThat(query("""
-                SELECT a, b, c, d
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(SELECT 1, 2, 3, 4, 5) t(a, B, "c", "D", e),
-                                    columns => DESCRIPTOR(e)))
-                """))
-                .matches("SELECT 1, 2, 3, 4");
+        assertQuery("SELECT a, b, c, d\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(SELECT 1, 2, 3, 4, 5) t(a, B, \"c\", \"D\", e),\n" +
+                        "                    columns => DESCRIPTOR(e)))\n",
+                "SELECT 1, 2, 3, 4");
     }
 
     @Test
     public void testHiddenColumn()
     {
-        assertThat(query("SELECT row_number FROM tpch.tiny.region")).matches("SELECT * FROM UNNEST(sequence(0, 4))");
+        assertQuery("SELECT row_number FROM tpch.tiny.region",
+                "SELECT * FROM UNNEST(sequence(0, 4))");
 
         // the hidden column is not provided to the function
-        assertThatThrownBy(() -> query("""
-                SELECT row_number
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(comment)))
-                """))
-                .hasMessage("line 1:8: Column 'row_number' cannot be resolved");
+        assertQueryFails("SELECT row_number\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(comment)))\n",
+                "line 1:8: Column 'row_number' cannot be resolved");
 
-        assertThatThrownBy(() -> query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(row_number)))
-                """))
-                .hasMessage("Excluded columns: [row_number] not present in the table");
+        assertQueryFailsExact("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(row_number)))\n",
+                "Excluded columns: [row_number] not present in the table");
     }
 
     @Test
     public void testAnonymousColumn()
     {
         // cannot exclude an unnamed columns. the unnamed columns are passed on unnamed.
-        assertThat(query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(SELECT 1 a, 2, 3 c, 4),
-                                    columns => DESCRIPTOR(a, c)))
-                """))
-                .matches("SELECT 2, 4");
+        assertQuery("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(SELECT 1 a, 2, 3 c, 4),\n" +
+                        "                    columns => DESCRIPTOR(a, c)))\n",
+                "SELECT 2, 4");
     }
 
     @Test
     public void testDuplicateExcludedColumn()
     {
         // duplicates in excluded column names are allowed
-        assertThat(query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(comment, name, comment)))
-                """))
-                .matches("SELECT nationkey, regionkey FROM tpch.tiny.nation");
+        assertQuery("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(comment, name, comment)))\n",
+                "SELECT nationkey, regionkey FROM tpch.tiny.nation");
     }
 
     @Test
     public void testDuplicateInputColumn()
     {
         // all input columns with given name are excluded
-        assertThat(query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(SELECT 1, 2, 3, 4, 5) t(a, b, c, a, b),
-                                    columns => DESCRIPTOR(a, b)))
-                """))
-                .matches("SELECT 3");
+        assertQuery("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(SELECT 1, 2, 3, 4, 5) t(a, b, c, a, b),\n" +
+                        "                    columns => DESCRIPTOR(a, b)))\n",
+                "SELECT 3");
     }
 
     @Test
     public void testFunctionResolution()
     {
-        assertThat(query("""
-                SELECT *
-                FROM TABLE(system.builtin.exclude_columns(
-                                    input => TABLE(tpch.tiny.nation),
-                                    columns => DESCRIPTOR(comment)))
-                """))
-                .matches("""
-                        SELECT *
-                        FROM TABLE(exclude_columns(
-                                            input => TABLE(tpch.tiny.nation),
-                                            columns => DESCRIPTOR(comment)))
-                        """);
+        assertQuery("SELECT *\n" +
+                        "FROM TABLE(system.builtin.exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(comment)))\n",
+                "SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.nation),\n" +
+                        "                    columns => DESCRIPTOR(comment)))\n");
     }
 
     @Test
     public void testBigInput()
     {
-        assertThat(query("""
-                SELECT *
-                FROM TABLE(exclude_columns(
-                                    input => TABLE(tpch.tiny.orders),
-                                    columns => DESCRIPTOR(orderstatus, orderdate, orderpriority, clerk, shippriority, comment)))
-                """))
-                .matches("SELECT orderkey, custkey, totalprice FROM tpch.tiny.orders");
-    }*/
+        assertQuery("SELECT *\n" +
+                        "FROM TABLE(exclude_columns(\n" +
+                        "                    input => TABLE(tpch.tiny.orders),\n" +
+                        "                    columns => DESCRIPTOR(orderstatus, orderdate, orderpriority, clerk, shippriority, comment)))\n",
+                "SELECT orderkey, custkey, totalprice FROM tpch.tiny.orders");
+    }
 }
