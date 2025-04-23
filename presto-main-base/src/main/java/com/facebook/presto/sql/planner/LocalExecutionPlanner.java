@@ -141,7 +141,6 @@ import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.spi.function.FunctionHandle;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.function.JavaAggregationFunctionImplementation;
-import com.facebook.presto.spi.function.SchemaFunctionName;
 import com.facebook.presto.spi.function.SqlFunctionHandle;
 import com.facebook.presto.spi.function.SqlFunctionId;
 import com.facebook.presto.spi.function.SqlInvokedFunction;
@@ -1233,8 +1232,7 @@ public class LocalExecutionPlanner
         @Override
         public PhysicalOperation visitTableFunctionProcessor(TableFunctionProcessorNode node, LocalExecutionPlanContext context)
         {
-            Function<SchemaFunctionName, TableFunctionProcessorProvider> getTableFunctionProcessProvider = metadata.getFunctionAndTypeManager().getTableFunctionProcessorProvider(node.getHandle()).orElseThrow(NoSuchElementException::new);
-            TableFunctionProcessorProvider processorProvider = getTableFunctionProcessProvider.apply(node.getHandle().getSchemaFunctionName());
+            TableFunctionProcessorProvider processorProvider = metadata.getFunctionAndTypeManager().getTableFunctionProcessorProvider(node.getHandle().getFunctionHandle());
 
             if (!node.getSource().isPresent()) {
                 OperatorFactory operatorFactory = new LeafTableFunctionOperator.LeafTableFunctionOperatorFactory(context.getNextOperatorId(), node.getId(), processorProvider, node.getHandle().getFunctionHandle());
