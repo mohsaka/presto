@@ -205,14 +205,14 @@ public class TestTableFunctionInvocation
                                                 ImmutableList.of(ImmutableList.of("a", "b")))
                                         .requiredSymbols(ImmutableList.of(ImmutableList.of("a")))
                                         .specification(specification(ImmutableList.of(), ImmutableList.of(), ImmutableMap.of())),
-                                values(ImmutableList.of("a", "b"), ImmutableList.of(ImmutableList.of(new LongLiteral("1"), TRUE_LITERAL))))));
+                                project(ImmutableMap.of("a", expression("INTEGER'1'"), "b", expression("BOOLEAN'true'")), anyTree(values(1))))));
 
         // no table function outputs are referenced. All pass-through symbols are pruned from the TableFunctionProcessorNode. The unused symbol "b" is pruned from the source values node.
         assertPlan("SELECT 'constant' c FROM TABLE(mock.system.pass_through_function(input => TABLE(SELECT 1, true) t(a, b)))",
                 strictOutput(
                         ImmutableList.of("c"),
                         strictProject(
-                                ImmutableMap.of("c", expression("'constant'")),
+                                ImmutableMap.of("c", expression("VARCHAR'constant'")),
                                 tableFunctionProcessor(
                                         builder -> builder
                                                 .name("pass_through_function")
@@ -220,7 +220,7 @@ public class TestTableFunctionInvocation
                                                 .passThroughSymbols(ImmutableList.of(ImmutableList.of()))
                                                 .requiredSymbols(ImmutableList.of(ImmutableList.of("a")))
                                                 .specification(specification(ImmutableList.of(), ImmutableList.of(), ImmutableMap.of())),
-                                        values(ImmutableList.of("a"), ImmutableList.of(ImmutableList.of(new LongLiteral("1"))))))));
+                                        project(ImmutableMap.of("a", expression("INTEGER'1'")), anyTree(values(1)))))));
     }
 
     @Test
