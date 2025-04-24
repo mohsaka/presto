@@ -1327,7 +1327,7 @@ public class PlanPrinter
             NodeRepresentation nodeOutput = addNode(
                     node,
                     "TableFunction",
-                    "name",
+                    node.getName(),
                     context.getTag());
 
             if (!node.getArguments().isEmpty()) {
@@ -1337,12 +1337,12 @@ public class PlanPrinter
                         .collect(toImmutableMap(TableArgumentProperties::getArgumentName, identity()));
 
                 node.getArguments().entrySet().stream()
-                        .forEach(entry -> nodeOutput.appendDetails(formatArgument(entry.getKey(), entry.getValue(), tableArguments)));
+                        .forEach(entry -> nodeOutput.appendDetailsLine(formatArgument(entry.getKey(), entry.getValue(), tableArguments)));
 
                 if (!node.getCopartitioningLists().isEmpty()) {
-                    nodeOutput.appendDetails(node.getCopartitioningLists().stream()
+                    nodeOutput.appendDetailsLine(node.getCopartitioningLists().stream()
                             .map(list -> list.stream().collect(Collectors.joining(", ", "(", ")")))
-                            .collect(joining(", ", "Co-partition: [", "]")));
+                            .collect(joining(", ", "Co-partition: [", "] ")));
                 }
             }
 
@@ -1392,38 +1392,43 @@ public class PlanPrinter
             return format("%s => DescriptorArgument{%s}", argumentName, descriptor);
         }
 
+        void appendWithComma(StringBuilder sb, String text) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(text);
+        }
+
         private String formatTableArgument(String argumentName, TableArgumentProperties argumentProperties)
         {
             StringBuilder properties = new StringBuilder();
+
             if (argumentProperties.rowSemantics()) {
-                properties.append("row semantics");
+                appendWithComma(properties, "row semantics ");
             }
             argumentProperties.specification().ifPresent(specification -> {
-                properties
+                StringBuilder specificationBuilder = new StringBuilder();
+                specificationBuilder
                         .append("partition by: [")
                         .append(Joiner.on(", ").join(specification.getPartitionBy()))
                         .append("]");
                 specification.getOrderingScheme().ifPresent(orderingScheme -> {
-                    properties
+                    specificationBuilder
                             .append(", order by: ")
                             .append(formatOrderingScheme(orderingScheme));
                 });
+                appendWithComma(properties, specificationBuilder.toString());
             });
 
-            properties.append("required columns: [")
-                    .append(Joiner.on(", ").join(argumentProperties.getRequiredColumns()))
-                    .append("]");
-
-            properties.append("required columns: [")
-                    .append(Joiner.on(", ").join(argumentProperties.getRequiredColumns()))
-                    .append("]");
+            appendWithComma(properties, "required columns: [" +
+                    Joiner.on(", ").join(argumentProperties.getRequiredColumns()) + "]");
 
             if (argumentProperties.pruneWhenEmpty()) {
-                properties.append(", prune when empty");
+                appendWithComma(properties, "prune when empty");
             }
 
             if (argumentProperties.getPassThroughSpecification().isDeclaredAsPassThrough()) {
-                properties.append(", pass through columns");
+                appendWithComma(properties, "pass through columns");
             }
 
             return format("%s => TableArgument{%s}", argumentName, properties);
