@@ -296,8 +296,10 @@ class RelationPlanner
                 // order by
                 Optional<OrderingScheme> orderBy = Optional.empty();
                 if (tableArgument.getOrderBy().isPresent()) {
-                    List<Expression> orderByColumns = tableArgument.getOrderBy().get().getSortItems().stream().map(SortItem::getSortKey).collect(Collectors.toList());
+                    List<Expression> orderByColumns = filterUntranslatedExpressions(
+                            tableArgument.getOrderBy().get().getSortItems(), sourcePlanBuilder);
                     sourcePlanBuilder = sourcePlanBuilder.appendProjections(orderByColumns, variableAllocator, idAllocator, session, metadata, sqlParser, analysis, context);
+
                     // the ordering symbols are not coerced
                     orderBy = Optional.of(translateOrderingScheme(tableArgument.getOrderBy().get().getSortItems(), sourcePlanBuilder::translate));
                 }
@@ -1222,5 +1224,12 @@ class RelationPlanner
         {
             return variableMapping;
         }
+    }
+
+    private List<Expression> filterUntranslatedExpressions(List<SortItem> sortItems, PlanBuilder planBuilder) {
+        return sortItems.stream()
+                .map(SortItem::getSortKey)
+                .filter(expression -> !planBuilder.canTranslate(expression))
+                .collect(Collectors.toList());
     }
 }
