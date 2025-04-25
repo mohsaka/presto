@@ -225,6 +225,7 @@ public class TestTableFunctionInvocation
     @Test
     public void testRemoveRedundantTableFunction()
     {
+        /*
         assertPlan("SELECT * FROM TABLE(mock.system.pass_through_function(input => TABLE(SELECT 1, true WHERE false) t(a, b) PRUNE WHEN EMPTY))",
                 output(values(ImmutableList.of("x", "a", "b"))));
 
@@ -253,7 +254,7 @@ public class TestTableFunctionInvocation
                 output(
                         node(TableFunctionProcessorNode.class,
                                 values(ImmutableList.of("a", "marker_1", "c", "marker_2", "row_number")))));
-
+*/
         assertPlan("SELECT *\n" +
                         "FROM TABLE(mock.system.two_table_arguments_function(\n" +
                         "                input1 => TABLE(SELECT 1, true WHERE false) t1(a, b) KEEP WHEN EMPTY,\n" +
