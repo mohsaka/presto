@@ -282,7 +282,7 @@ class RelationPlanner
             // if the table argument has set semantics, create Specification
             if (!tableArgument.isRowSemantics()) {
                 // partition by
-                List<VariableReferenceExpression> partitionBy = new ArrayList<VariableReferenceExpression>();
+                List<VariableReferenceExpression> partitionBy = ImmutableList.of();
                 // if there are partitioning columns, they might have to be coerced for copartitioning
                 if (tableArgument.getPartitionBy().isPresent() && !tableArgument.getPartitionBy().get().isEmpty()) {
                     List<Expression> partitioningColumns = tableArgument.getPartitionBy().get();
@@ -296,13 +296,15 @@ class RelationPlanner
                     for (Expression partitionColumn : partitioningColumns) {
                         if (!sourcePlanBuilder.canTranslate(partitionColumn)) {
                             ResolvedField partition = sourcePlan.getScope().tryResolveField(partitionColumn).orElseThrow(() -> new PrestoException(INVALID_PLAN_ERROR, "Missing equivalent alias"));
-                            partitionBy.add(sourcePlan.getVariable(partition.getRelationFieldIndex()));
                             sourcePlanBuilder.getTranslations().put(partitionColumn, sourcePlan.getVariable(partition.getRelationFieldIndex()));
                         }
-                        else {
-                            partitionBy.add(sourcePlanBuilder.translate(partitionColumn));
-                        }
                     }
+                    QueryPlanner partitionQueryPlanner = new QueryPlanner(analysis, variableAllocator, idAllocator, lambdaDeclarationToVariableMap, metadata, session, context, sqlParser);
+                    QueryPlanner.PlanAndMappings copartitionCoercions = partitionQueryPlanner.coerce(sourcePlanBuilder, partitioningColumns, analysis, idAllocator, variableAllocator, metadata);
+                    sourcePlanBuilder = copartitionCoercions.getSubPlan();
+                    partitionBy = partitioningColumns.stream()
+                           .map(copartitionCoercions::get)
+                            .collect(toImmutableList());
                 }
 
                 // order by
