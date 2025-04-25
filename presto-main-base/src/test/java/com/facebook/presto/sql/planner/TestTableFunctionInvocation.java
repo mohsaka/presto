@@ -25,7 +25,6 @@ import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.function.table.Descriptor;
 import com.facebook.presto.spi.function.table.Descriptor.Field;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
-import com.facebook.presto.sql.planner.assertions.RowNumberSymbolMatcher;
 import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.google.common.collect.ImmutableList;
@@ -42,18 +41,15 @@ import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.sql.Optimizer.PlanStage.CREATED;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.expression;
-import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.functionCall;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.output;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.project;
-import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.rowNumber;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.specification;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.strictOutput;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.strictProject;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.tableFunction;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.tableFunctionProcessor;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.values;
-import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.window;
 import static com.facebook.presto.sql.planner.assertions.TableFunctionMatcher.DescriptorArgumentValue.descriptorArgument;
 import static com.facebook.presto.sql.planner.assertions.TableFunctionMatcher.DescriptorArgumentValue.nullDescriptor;
 import static com.facebook.presto.sql.planner.assertions.TableFunctionMatcher.TableArgumentValue.Builder.tableArgument;
@@ -227,7 +223,6 @@ public class TestTableFunctionInvocation
     @Test
     public void testRemoveRedundantTableFunction()
     {
-/*
         assertPlan("SELECT * FROM TABLE(mock.system.pass_through_function(input => TABLE(SELECT 1, true WHERE false) t(a, b) PRUNE WHEN EMPTY))",
                 output(values(ImmutableList.of("x", "a", "b"))));
 
@@ -255,7 +250,7 @@ public class TestTableFunctionInvocation
                         "                input2 => TABLE(SELECT 2, false WHERE false) t2(c, d) KEEP WHEN EMPTY))\n",
                 output(
                         node(TableFunctionProcessorNode.class,
-                                values(ImmutableList.of("a", "marker_1", "c", "marker_2", "row_number")))));*/
+                                values(ImmutableList.of("a", "marker_1", "c", "marker_2", "row_number")))));
 
         assertPlan("SELECT *\n" +
                         "FROM TABLE(mock.system.two_table_arguments_function(\n" +
