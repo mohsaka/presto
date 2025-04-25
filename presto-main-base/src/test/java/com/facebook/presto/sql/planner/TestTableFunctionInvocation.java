@@ -55,7 +55,6 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.values
 import static com.facebook.presto.sql.planner.assertions.TableFunctionMatcher.DescriptorArgumentValue.descriptorArgument;
 import static com.facebook.presto.sql.planner.assertions.TableFunctionMatcher.DescriptorArgumentValue.nullDescriptor;
 import static com.facebook.presto.sql.planner.assertions.TableFunctionMatcher.TableArgumentValue.Builder.tableArgument;
-import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
 
 public class TestTableFunctionInvocation
         extends BasePlanTest

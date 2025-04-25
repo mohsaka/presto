@@ -1392,19 +1392,12 @@ public class PlanPrinter
             return format("%s => DescriptorArgument{%s}", argumentName, descriptor);
         }
 
-        void appendWithComma(StringBuilder sb, String text) {
-            if (sb.length() > 0) {
-                sb.append(", ");
-            }
-            sb.append(text);
-        }
-
         private String formatTableArgument(String argumentName, TableArgumentProperties argumentProperties)
         {
-            StringBuilder properties = new StringBuilder();
+            List<String> properties = new ArrayList<>();
 
             if (argumentProperties.rowSemantics()) {
-                appendWithComma(properties, "row semantics ");
+                properties.add("row semantics ");
             }
             argumentProperties.specification().ifPresent(specification -> {
                 StringBuilder specificationBuilder = new StringBuilder();
@@ -1417,21 +1410,21 @@ public class PlanPrinter
                             .append(", order by: ")
                             .append(formatOrderingScheme(orderingScheme));
                 });
-                appendWithComma(properties, specificationBuilder.toString());
+                properties.add(specificationBuilder.toString());
             });
 
-            appendWithComma(properties, "required columns: [" +
+            properties.add("required columns: [" +
                     Joiner.on(", ").join(argumentProperties.getRequiredColumns()) + "]");
 
             if (argumentProperties.pruneWhenEmpty()) {
-                appendWithComma(properties, "prune when empty");
+                properties.add("prune when empty");
             }
 
             if (argumentProperties.getPassThroughSpecification().isDeclaredAsPassThrough()) {
-                appendWithComma(properties, "pass through columns");
+                properties.add("pass through columns");
             }
 
-            return format("%s => TableArgument{%s}", argumentName, properties);
+            return format("%s => TableArgument{%s}", argumentName, Joiner.on(", ").join(properties));
         }
 
         @Override
