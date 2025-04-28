@@ -140,7 +140,10 @@ void ArrowFlightDataSource::addSplit(std::shared_ptr<ConnectorSplit> split) {
 
   CallOptionsAddHeaders callOptsAddHeaders{};
   authenticator_->authenticateClient(
-      client, connectorQueryCtx_->sessionProperties(), callOptsAddHeaders);
+      client,
+      connectorQueryCtx_->sessionProperties(),
+      flightSplit->extraCredentials,
+      callOptsAddHeaders);
 
   auto readerResult = client->DoGet(callOptsAddHeaders, flightEndpoint.ticket);
   AFC_ASSIGN_OR_RAISE(currentReader_, readerResult);

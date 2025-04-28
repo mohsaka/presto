@@ -29,10 +29,12 @@ class Authenticator {
   /// client->AuthenticateBasicToken or any other custom strategy
   /// @param client the Flight client which is to be authenticated
   /// @param sessionProperties connector session properties
+  /// @param extraCredentials extra credential data used for authentication
   /// @param headerWriter write-only object used to set authentication headers
   virtual void authenticateClient(
       std::unique_ptr<arrow::flight::FlightClient>& client,
       const velox::config::ConfigBase* sessionProperties,
+      const std::map<std::string, std::string>& extraCredentials,
       arrow::flight::AddCallHeaders& headerWriter) = 0;
 };
 
@@ -68,6 +70,7 @@ class NoOpAuthenticator : public Authenticator {
   void authenticateClient(
       std::unique_ptr<arrow::flight::FlightClient>& client,
       const velox::config::ConfigBase* sessionProperties,
+      const std::map<std::string, std::string>& extraCredentials,
       arrow::flight::AddCallHeaders& headerWriter) override {}
 };
 

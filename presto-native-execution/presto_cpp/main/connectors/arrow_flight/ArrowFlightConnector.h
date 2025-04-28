@@ -44,13 +44,17 @@ class ArrowFlightTableHandle : public velox::connector::ConnectorTableHandle {
 struct ArrowFlightSplit : public velox::connector::ConnectorSplit {
   /// @param connectorId
   /// @param flightEndpointBytes Base64 Serialized `FlightEndpoint`
+  /// @param extraCredentials Extra credentials for authentication
   ArrowFlightSplit(
       const std::string& connectorId,
-      const std::string& flightEndpointBytes)
+      const std::string& flightEndpointBytes,
+      const std::map<std::string, std::string>& extraCredentials = {})
       : ConnectorSplit(connectorId),
-        flightEndpointBytes_(flightEndpointBytes) {}
+        flightEndpointBytes_(flightEndpointBytes),
+        extraCredentials{extraCredentials} {}
 
   const std::string flightEndpointBytes_;
+  std::map<std::string, std::string> extraCredentials;
 };
 
 class ArrowFlightColumnHandle : public velox::connector::ColumnHandle {

@@ -83,6 +83,7 @@ class TestAuthenticator : public Authenticator {
   void authenticateClient(
       std::unique_ptr<arrow::flight::FlightClient>& client,
       const velox::config::ConfigBase* sessionProperties,
+      const std::map<std::string, std::string>& extraCredentials,
       arrow::flight::AddCallHeaders& headerWriter) override {
     if (!authToken_.empty()) {
       headerWriter.AddHeader(

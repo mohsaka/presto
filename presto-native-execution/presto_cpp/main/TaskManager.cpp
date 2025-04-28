@@ -28,6 +28,10 @@
 #include "velox/common/file/FileSystems.h"
 #include "velox/common/time/Timer.h"
 
+#ifdef PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR
+#include "presto_cpp/main/connectors/arrow_flight/ArrowFlightConnector.h"
+#endif
+
 using namespace facebook::velox;
 
 using facebook::presto::protocol::TaskId;
@@ -503,6 +507,7 @@ std::unique_ptr<protocol::TaskInfo> TaskManager::createOrUpdateTask(
       updateRequest.sources,
       updateRequest.outputIds,
       summarize,
+      updateRequest.extraCredentials,
       std::move(queryCtx),
       startProcessCpuTime);
 }
@@ -524,6 +529,7 @@ std::unique_ptr<protocol::TaskInfo> TaskManager::createOrUpdateBatchTask(
       updateRequest.sources,
       updateRequest.outputIds,
       summarize,
+      updateRequest.extraCredentials,
       std::move(queryCtx),
       startProcessCpuTime);
 }
@@ -534,6 +540,7 @@ std::unique_ptr<TaskInfo> TaskManager::createOrUpdateTaskImpl(
     const std::vector<protocol::TaskSource>& sources,
     const protocol::OutputBuffers& outputBuffers,
     bool summarize,
+    const std::map<std::string, std::string>& extraCredentials,
     std::shared_ptr<velox::core::QueryCtx> queryCtx,
     long startProcessCpuTime) {
   std::shared_ptr<exec::Task> execTask;
@@ -620,6 +627,16 @@ std::unique_ptr<TaskInfo> TaskManager::createOrUpdateTaskImpl(
       for (const auto& protocolSplit : source.splits) {
         auto split = toVeloxSplit(protocolSplit);
         if (split.hasConnectorSplit()) {
+          // Since the extra credential data is coming from TaskUpdateRequest
+          // and not from the arrow protocol split, and since velox arrow split
+          // contains a field for extra credentials, the below code is required.
+#ifdef PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR
+          auto arrowSplit = dynamic_cast<presto::ArrowFlightSplit*>(
+              split.connectorSplit.get());
+          if (arrowSplit) {
+            arrowSplit->extraCredentials = extraCredentials;
+          }
+#endif
           maxSplitSequenceId =
               std::max(maxSplitSequenceId, protocolSplit.sequenceId);
           execTask->addSplitWithSequence(
