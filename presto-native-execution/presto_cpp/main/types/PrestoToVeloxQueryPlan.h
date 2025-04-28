@@ -110,6 +110,16 @@ class VeloxQueryPlanConverterBase {
       const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
       const protocol::TaskId& taskId);
 
+  std::shared_ptr<const velox::core::IndexLookupJoinNode> toVeloxQueryPlan(
+      const std::shared_ptr<const protocol::IndexJoinNode>& node,
+      const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
+      const protocol::TaskId& taskId);
+
+  std::shared_ptr<const velox::core::TableScanNode> toVeloxQueryPlan(
+    const std::shared_ptr<const protocol::IndexSourceNode>& node,
+    const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
+    const protocol::TaskId& taskId);
+
   velox::core::PlanNodePtr toVeloxQueryPlan(
       const std::shared_ptr<const protocol::MarkDistinctNode>& node,
       const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
@@ -216,6 +226,10 @@ class VeloxQueryPlanConverterBase {
           protocol::Aggregation>& aggregationMap,
       std::vector<velox::core::AggregationNode::Aggregate>& aggregates,
       std::vector<std::string>& aggregateNames);
+
+  void parseIndexLookupCondition(
+      const std::shared_ptr<protocol::RowExpression>& filter,
+      std::vector<velox::core::IndexLookupConditionPtr>& joinConditionPtrs);
 
   velox::memory::MemoryPool* const pool_;
   velox::core::QueryCtx* const queryCtx_;

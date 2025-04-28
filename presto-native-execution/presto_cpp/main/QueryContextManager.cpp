@@ -53,8 +53,9 @@ void updateFromSystemConfigs(
           {core::QueryConfig::kOrderBySpillEnabled,
           std::string(SystemConfig::kOrderBySpillEnabled)},
           {core::QueryConfig::kAggregationSpillEnabled,
-          std::string(SystemConfig::kAggregationSpillEnabled)}};
-
+          std::string(SystemConfig::kAggregationSpillEnabled)},
+          {core::QueryConfig::kRequestDataSizesMaxWaitSec,
+          std::string(SystemConfig::kRequestDataSizesMaxWaitSec)}};
   for (const auto& configNameEntry : sessionSystemConfigMapping) {
     const auto& sessionName = configNameEntry.first;
     const auto& systemConfigName = configNameEntry.second;
@@ -163,9 +164,17 @@ std::shared_ptr<core::QueryCtx> QueryContextManager::findOrCreateQueryCtx(
   // though the query ctx has been evicted out of the cache. The query ctx cache
   // is still indexed by the query id.
   static std::atomic_uint64_t poolId{0};
+  std::optional<memory::MemoryPool::DebugOptions> poolDbgOpts;
+  const auto debugMemoryPoolNameRegex = queryConfig.debugMemoryPoolNameRegex();
+  if (!debugMemoryPoolNameRegex.empty()) {
+    poolDbgOpts = memory::MemoryPool::DebugOptions{
+        .debugPoolNameRegex = debugMemoryPoolNameRegex};
+  }
   auto pool = memory::MemoryManager::getInstance()->addRootPool(
       fmt::format("{}_{}", queryId, poolId++),
-      queryConfig.queryMaxMemoryPerNode());
+      queryConfig.queryMaxMemoryPerNode(),
+      nullptr,
+      poolDbgOpts);
 
   auto queryCtx = core::QueryCtx::create(
       driverExecutor_,
@@ -212,19 +221,17 @@ QueryContextManager::toVeloxConfigs(
       traceFragmentId = it.second;
     } else if (it.first == SessionProperties::kQueryTraceShardId) {
       traceShardId = it.second;
-    } else if (it.first == SessionProperties::kShuffleCompressionEnabled) {
-      if (it.second == "true") {
-        // NOTE: Presto java only support lz4 compression so configure the same
-        // compression kind on velox.
-        configs[core::QueryConfig::kShuffleCompressionKind] =
-            velox::common::compressionKindToString(
-                velox::common::CompressionKind_LZ4);
-      } else {
-        VELOX_USER_CHECK_EQ(it.second, "false");
-        configs[core::QueryConfig::kShuffleCompressionKind] =
-            velox::common::compressionKindToString(
-                velox::common::CompressionKind_NONE);
-      }
+    } else if (it.first == SessionProperties::kShuffleCompressionCodec) {
+      auto compression = it.second;
+      std::transform(
+          compression.begin(),
+          compression.end(),
+          compression.begin(),
+          ::tolower);
+      velox::common::CompressionKind compressionKind =
+          common::stringToCompressionKind(compression);
+      configs[core::QueryConfig::kShuffleCompressionKind] =
+          velox::common::compressionKindToString(compressionKind);
     } else {
       configs[sessionProperties_.toVeloxConfig(it.first)] = it.second;
       sessionProperties_.updateVeloxConfig(it.first, it.second);

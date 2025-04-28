@@ -207,6 +207,7 @@ SystemConfig::SystemConfig() {
           STR_PROP(kSharedArbitratorMemoryPoolReservedCapacity, "64MB"),
           STR_PROP(kSharedArbitratorMaxMemoryArbitrationTime, "5m"),
           STR_PROP(kSharedArbitratorGlobalArbitrationEnabled, "false"),
+          STR_PROP(kSharedArbitratorMemoryPoolAbortCapacityLimit, "8GB"),
           NUM_PROP(kLargestSizeClassPages, 256),
           BOOL_PROP(kEnableVeloxTaskLogging, false),
           BOOL_PROP(kEnableVeloxExprSetLogging, false),
@@ -217,7 +218,6 @@ SystemConfig::SystemConfig() {
           BOOL_PROP(kHttpEnableAccessLog, false),
           BOOL_PROP(kHttpEnableStatsFilter, false),
           BOOL_PROP(kHttpEnableEndpointLatencyFilter, false),
-          BOOL_PROP(kRegisterTestFunctions, false),
           NUM_PROP(kHttpMaxAllocateBytes, 65536),
           STR_PROP(kQueryMaxMemoryPerNode, "4GB"),
           BOOL_PROP(kEnableMemoryLeakCheck, true),
@@ -735,10 +735,6 @@ bool SystemConfig::enableHttpStatsFilter() const {
 
 bool SystemConfig::enableHttpEndpointLatencyFilter() const {
   return optionalProperty<bool>(kHttpEnableEndpointLatencyFilter).value();
-}
-
-bool SystemConfig::registerTestFunctions() const {
-  return optionalProperty<bool>(kRegisterTestFunctions).value();
 }
 
 uint64_t SystemConfig::httpMaxAllocateBytes() const {
