@@ -25,6 +25,7 @@ import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.function.table.Descriptor;
 import com.facebook.presto.spi.function.table.Descriptor.Field;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
+import com.facebook.presto.sql.planner.assertions.RowNumberSymbolMatcher;
 import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.google.common.collect.ImmutableList;
@@ -44,6 +45,7 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.expres
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.output;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.project;
+import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.rowNumber;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.specification;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.strictOutput;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.strictProject;
@@ -260,6 +262,9 @@ public class TestTableFunctionInvocation
                         node(TableFunctionProcessorNode.class,
                                 project(
                                         project(
-                                                anyTree(values(1)))))));
+                                                rowNumber(
+                                                        builder -> builder.partitionBy(ImmutableList.of()),
+                                                        anyTree(values(1))
+                                                ).withAlias("input_2_row_number", new RowNumberSymbolMatcher()))))));
     }
 }
