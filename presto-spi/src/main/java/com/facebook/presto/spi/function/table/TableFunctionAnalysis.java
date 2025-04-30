@@ -79,7 +79,7 @@ public final class TableFunctionAnalysis
     {
         private Descriptor returnedType;
         private final Map<String, List<Integer>> requiredColumns = new HashMap<>();
-        private ConnectorTableFunctionHandle handle = new ConnectorTableFunctionHandle() {};
+        private ConnectorTableFunctionHandle handle;
 
         private Builder() {}
 

@@ -290,8 +290,8 @@ public class PluginManager
             log.info("Registering connector %s", connectorFactory.getName());
             connectorManager.addConnectorFactory(connectorFactory);
 
-            if (connectorFactory.getTableFunctionProcessorProvider().isPresent()) {
-                metadata.getFunctionAndTypeManager().setGetTableFunctionProcessorProvider(connectorFactory.getTableFunctionProcessorProvider());
+            if (connectorFactory.getTableFunctionProcessorProvider() != null) {
+                metadata.getFunctionAndTypeManager().setTableFunctionProcessorProvider(connectorFactory.getTableFunctionProcessorProvider());
             }
         }
 

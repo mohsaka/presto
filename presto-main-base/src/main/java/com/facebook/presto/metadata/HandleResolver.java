@@ -15,6 +15,9 @@ package com.facebook.presto.metadata;
 
 import com.facebook.presto.connector.informationSchema.InformationSchemaHandleResolver;
 import com.facebook.presto.connector.system.SystemHandleResolver;
+import com.facebook.presto.operator.table.ExcludeColumns.ExcludeColumnsFunctionHandle;
+import com.facebook.presto.operator.table.Sequence;
+import com.facebook.presto.operator.table.Sequence.SequenceFunctionHandle;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorDeleteTableHandle;
 import com.facebook.presto.spi.ConnectorHandleResolver;
@@ -37,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 
 import javax.inject.Inject;
 
+import java.util.Collections;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
@@ -68,6 +72,9 @@ public class HandleResolver
 
         functionHandleResolvers.put("$static", new MaterializedFunctionHandleResolver(new BuiltInFunctionNamespaceHandleResolver()));
         functionHandleResolvers.put("$session", new MaterializedFunctionHandleResolver(new SessionFunctionHandleResolver()));
+
+        tableFunctionHandleResolvers.put("$system", new MaterializedTableFunctionHandleResolver(() -> ImmutableSet.of(ExcludeColumnsFunctionHandle.class, SequenceFunctionHandle.class)));
+        tableFunctionSplitResolvers.put("$system", new MaterializedTableFunctionSplitResolver(() -> Collections.singleton(Sequence.SequenceFunctionSplit.class)));
     }
 
     public void addConnectorName(String name, ConnectorHandleResolver resolver)
