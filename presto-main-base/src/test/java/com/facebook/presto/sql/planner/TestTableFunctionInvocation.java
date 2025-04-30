@@ -219,7 +219,7 @@ public class TestTableFunctionInvocation
                                                 .passThroughSymbols(ImmutableList.of(ImmutableList.of()))
                                                 .requiredSymbols(ImmutableList.of(ImmutableList.of("a")))
                                                 .specification(specification(ImmutableList.of(), ImmutableList.of(), ImmutableMap.of())),
-                                        project(ImmutableMap.of("a", expression("INTEGER'1'")), anyTree(values(1)))))));
+                                        project(ImmutableMap.of("a", expression("INTEGER'1'")), values(1))))));
     }
 
     @Test
@@ -264,7 +264,9 @@ public class TestTableFunctionInvocation
                                         project(
                                                 rowNumber(
                                                         builder -> builder.partitionBy(ImmutableList.of()),
-                                                        anyTree(values(1))
+                                                        project(
+                                                                ImmutableMap.of("c", expression("INTEGER'2'")),
+                                                                values(1))
                                                 ).withAlias("input_2_row_number", new RowNumberSymbolMatcher()))))));
     }
 }
