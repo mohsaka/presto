@@ -891,7 +891,7 @@ public class ExpressionAnalyzer
             try {
                 type = functionAndTypeResolver.getType(parseTypeSignature(node.getType()));
             }
-            catch (UnknownTypeException e) {
+            catch (IllegalArgumentException | UnknownTypeException e) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Unknown type: " + node.getType());
             }
 
@@ -914,7 +914,7 @@ public class ExpressionAnalyzer
             try {
                 type = functionAndTypeResolver.getType(parseTypeSignature(node.getType()));
             }
-            catch (UnknownTypeException e) {
+            catch (IllegalArgumentException | UnknownTypeException e) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Unknown type: " + node.getType());
             }
 

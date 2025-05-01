@@ -52,6 +52,7 @@ public class NativeWorkerSessionPropertyProvider
     public static final String NATIVE_DEBUG_DISABLE_COMMON_SUB_EXPRESSION = "native_debug_disable_common_sub_expressions";
     public static final String NATIVE_DEBUG_DISABLE_EXPRESSION_WITH_MEMOIZATION = "native_debug_disable_expression_with_memoization";
     public static final String NATIVE_DEBUG_DISABLE_EXPRESSION_WITH_LAZY_INPUTS = "native_debug_disable_expression_with_lazy_inputs";
+    public static final String NATIVE_DEBUG_MEMORY_POOL_NAME_REGEX = "native_debug_memory_pool_name_regex";
     public static final String NATIVE_SELECTIVE_NIMBLE_READER_ENABLED = "native_selective_nimble_reader_enabled";
     public static final String NATIVE_MAX_PARTIAL_AGGREGATION_MEMORY = "native_max_partial_aggregation_memory";
     public static final String NATIVE_MAX_EXTENDED_PARTIAL_AGGREGATION_MEMORY = "native_max_extended_partial_aggregation_memory";
@@ -75,6 +76,7 @@ public class NativeWorkerSessionPropertyProvider
     public static final String NATIVE_SCALED_WRITER_MIN_PROCESSED_BYTES_REBALANCE_THRESHOLD = "native_scaled_writer_min_processed_bytes_rebalance_threshold";
     public static final String NATIVE_TABLE_SCAN_SCALED_PROCESSING_ENABLED = "native_table_scan_scaled_processing_enabled";
     public static final String NATIVE_TABLE_SCAN_SCALE_UP_MEMORY_USAGE_RATIO = "native_table_scan_scale_up_memory_usage_ratio";
+    public static final String NATIVE_STREAMING_AGGREGATION_EAGER_FLUSH = "native_streaming_aggregation_eager_flush";
     private final List<PropertyMetadata<?>> sessionProperties;
 
     @Inject
@@ -199,6 +201,14 @@ public class NativeWorkerSessionPropertyProvider
                         "If set to true, disables optimization in expression evaluation to delay loading " +
                                 "of lazy inputs unless required. Should only be used for debugging.",
                         false,
+                        true),
+                stringProperty(
+                        NATIVE_DEBUG_MEMORY_POOL_NAME_REGEX,
+                        "Regex for filtering on memory pool name if not empty." +
+                                " This allows us to only track the callsites of memory allocations for" +
+                                " memory pools whose name matches the specified regular expression. Empty" +
+                                " string means no match for all.",
+                        "",
                         true),
                 booleanProperty(
                         NATIVE_SELECTIVE_NIMBLE_READER_ENABLED,
@@ -327,6 +337,14 @@ public class NativeWorkerSessionPropertyProvider
                                 "thread for scale up, and stop once exceeds this ratio. The value is in the " +
                                 "range of [0, 1].",
                         0.7,
+                        !nativeExecution),
+                booleanProperty(
+                        NATIVE_STREAMING_AGGREGATION_EAGER_FLUSH,
+                        "Controls the way streaming aggregation flushes output. We put the rows in output " +
+                                " batch, as soon as the corresponding groups are fully aggregated. This is useful " +
+                                "for reducing memory consumption, if the downstream operators are not sensitive to " +
+                                "small batch size.",
+                        false,
                         !nativeExecution));
     }
 

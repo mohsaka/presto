@@ -160,7 +160,7 @@ public final class SystemSessionProperties
     public static final String ITERATIVE_OPTIMIZER_TIMEOUT = "iterative_optimizer_timeout";
     public static final String QUERY_ANALYZER_TIMEOUT = "query_analyzer_timeout";
     public static final String RUNTIME_OPTIMIZER_ENABLED = "runtime_optimizer_enabled";
-    public static final String EXCHANGE_COMPRESSION = "exchange_compression";
+    public static final String EXCHANGE_COMPRESSION_CODEC = "exchange_compression_codec";
     public static final String EXCHANGE_CHECKSUM = "exchange_checksum";
     public static final String LEGACY_TIMESTAMP = "legacy_timestamp";
     public static final String ENABLE_INTERMEDIATE_AGGREGATIONS = "enable_intermediate_aggregations";
@@ -333,10 +333,12 @@ public final class SystemSessionProperties
 
     // TODO: Native execution related session properties that are temporarily put here. They will be relocated in the future.
     public static final String NATIVE_AGGREGATION_SPILL_ALL = "native_aggregation_spill_all";
-    private static final String NATIVE_EXECUTION_ENABLED = "native_execution_enabled";
+    public static final String NATIVE_EXECUTION_ENABLED = "native_execution_enabled";
     private static final String NATIVE_EXECUTION_EXECUTABLE_PATH = "native_execution_executable_path";
     private static final String NATIVE_EXECUTION_PROGRAM_ARGUMENTS = "native_execution_program_arguments";
     public static final String NATIVE_EXECUTION_PROCESS_REUSE_ENABLED = "native_execution_process_reuse_enabled";
+    public static final String INNER_JOIN_PUSHDOWN_ENABLED = "optimizer_inner_join_pushdown_enabled";
+    public static final String INEQUALITY_JOIN_PUSHDOWN_ENABLED = "optimizer_inequality_join_pushdown_enabled";
     public static final String NATIVE_MIN_COLUMNAR_ENCODING_CHANNELS_TO_PREFER_ROW_WISE_ENCODING = "native_min_columnar_encoding_channels_to_prefer_row_wise_encoding";
     public static final String NATIVE_ENFORCE_JOIN_BUILD_INPUT_PARTITION = "native_enforce_join_build_input_partition";
     public static final String NATIVE_EXECUTION_SCALE_WRITER_THREADS_ENABLED = "native_execution_scale_writer_threads_enabled";
@@ -840,11 +842,15 @@ public final class SystemSessionProperties
                         "Experimental: enable runtime optimizer",
                         featuresConfig.isRuntimeOptimizerEnabled(),
                         false),
-                booleanProperty(
-                        EXCHANGE_COMPRESSION,
-                        "Enable compression in exchanges",
-                        featuresConfig.isExchangeCompressionEnabled(),
-                        false),
+                new PropertyMetadata<>(
+                        EXCHANGE_COMPRESSION_CODEC,
+                        "Exchange compression codec",
+                        VARCHAR,
+                        CompressionCodec.class,
+                        featuresConfig.getExchangeCompressionCodec(),
+                        false,
+                        value -> CompressionCodec.valueOf(((String) value).toUpperCase()),
+                        CompressionCodec::name),
                 booleanProperty(
                         EXCHANGE_CHECKSUM,
                         "Enable checksum in exchanges",
@@ -1847,6 +1853,16 @@ public final class SystemSessionProperties
                         "Include values node for connector optimizer",
                         featuresConfig.isIncludeValuesNodeInConnectorOptimizer(),
                         false),
+                booleanProperty(
+                        INNER_JOIN_PUSHDOWN_ENABLED,
+                        "Enable Join Predicate Pushdown",
+                        featuresConfig.isInnerJoinPushdownEnabled(),
+                        false),
+                booleanProperty(
+                        INEQUALITY_JOIN_PUSHDOWN_ENABLED,
+                        "Enable Join Pushdown for Inequality Predicates",
+                        featuresConfig.isInEqualityJoinPushdownEnabled(),
+                    false),
                 integerProperty(
                         NATIVE_MIN_COLUMNAR_ENCODING_CHANNELS_TO_PREFER_ROW_WISE_ENCODING,
                         "Minimum number of columnar encoding channels to consider row wise encoding for partitioned exchange. Native execution only",
@@ -2291,9 +2307,9 @@ public final class SystemSessionProperties
         return session.getSystemProperty(QUERY_ANALYZER_TIMEOUT, Duration.class);
     }
 
-    public static boolean isExchangeCompressionEnabled(Session session)
+    public static CompressionCodec getExchangeCompressionCodec(Session session)
     {
-        return session.getSystemProperty(EXCHANGE_COMPRESSION, Boolean.class);
+        return session.getSystemProperty(EXCHANGE_COMPRESSION_CODEC, CompressionCodec.class);
     }
 
     public static boolean isExchangeChecksumEnabled(Session session)
@@ -3159,6 +3175,16 @@ public final class SystemSessionProperties
     public static boolean isIncludeValuesNodeInConnectorOptimizer(Session session)
     {
         return session.getSystemProperty(INCLUDE_VALUES_NODE_IN_CONNECTOR_OPTIMIZER, Boolean.class);
+    }
+
+    public static Boolean isInnerJoinPushdownEnabled(Session session)
+    {
+        return session.getSystemProperty(INNER_JOIN_PUSHDOWN_ENABLED, Boolean.class);
+    }
+
+    public static Boolean isInEqualityPushdownEnabled(Session session)
+    {
+        return session.getSystemProperty(INEQUALITY_JOIN_PUSHDOWN_ENABLED, Boolean.class);
     }
 
     public static int getMinColumnarEncodingChannelsToPreferRowWiseEncoding(Session session)

@@ -46,6 +46,8 @@ import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.constraints.TableConstraint;
 import com.facebook.presto.spi.function.SqlFunction;
 import com.facebook.presto.spi.plan.PartitioningHandle;
+import com.facebook.presto.spi.relation.RowExpression;
+import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.spi.security.GrantInfo;
 import com.facebook.presto.spi.security.PrestoPrincipal;
 import com.facebook.presto.spi.security.Privilege;
@@ -526,4 +528,14 @@ public interface Metadata
     void addConstraint(Session session, TableHandle tableHandle, TableConstraint<String> tableConstraint);
 
     Optional<TableFunctionApplicationResult<TableHandle>> applyTableFunction(Session session, TableFunctionHandle handle);
+    /**
+     * Check if the join predicate can be translated and pushed down to the underlying datasource
+     *
+     * @return TRUE if there is connector is able to translate and push down join predicate to the underlying datasource, FALSE otherwise
+     */
+
+    default boolean isPushdownSupportedForFilter(Session session, TableHandle tableHandle, RowExpression filter, Map<VariableReferenceExpression, ColumnHandle> symbolToColumnHandleMap)
+    {
+        return false;
+    }
 }

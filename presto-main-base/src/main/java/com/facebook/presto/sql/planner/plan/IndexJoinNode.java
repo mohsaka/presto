@@ -14,8 +14,10 @@
 package com.facebook.presto.sql.planner.plan;
 
 import com.facebook.presto.spi.SourceLocation;
+import com.facebook.presto.spi.plan.JoinType;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeId;
+import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -33,10 +35,11 @@ import static java.util.Objects.requireNonNull;
 public class IndexJoinNode
         extends InternalPlanNode
 {
-    private final Type type;
+    private final JoinType type;
     private final PlanNode probeSource;
     private final PlanNode indexSource;
     private final List<EquiJoinClause> criteria;
+    private final Optional<RowExpression> filter;
     private final Optional<VariableReferenceExpression> probeHashVariable;
     private final Optional<VariableReferenceExpression> indexHashVariable;
 
@@ -44,24 +47,35 @@ public class IndexJoinNode
     public IndexJoinNode(
             Optional<SourceLocation> sourceLocation,
             @JsonProperty("id") PlanNodeId id,
-            @JsonProperty("type") Type type,
+            @JsonProperty("type") JoinType type,
             @JsonProperty("probeSource") PlanNode probeSource,
             @JsonProperty("indexSource") PlanNode indexSource,
             @JsonProperty("criteria") List<EquiJoinClause> criteria,
+            @JsonProperty("filter") Optional<RowExpression> filter,
             @JsonProperty("probeHashVariable") Optional<VariableReferenceExpression> probeHashVariable,
             @JsonProperty("indexHashVariable") Optional<VariableReferenceExpression> indexHashVariable)
     {
-        this(sourceLocation, id, Optional.empty(), type, probeSource, indexSource, criteria, probeHashVariable, indexHashVariable);
+        this(sourceLocation,
+                id,
+                Optional.empty(),
+                type,
+                probeSource,
+                indexSource,
+                criteria,
+                filter,
+                probeHashVariable,
+                indexHashVariable);
     }
 
     public IndexJoinNode(
             Optional<SourceLocation> sourceLocation,
             PlanNodeId id,
             Optional<PlanNode> statsEquivalentPlanNode,
-            Type type,
+            JoinType type,
             PlanNode probeSource,
             PlanNode indexSource,
             List<EquiJoinClause> criteria,
+            Optional<RowExpression> filter,
             Optional<VariableReferenceExpression> probeHashVariable,
             Optional<VariableReferenceExpression> indexHashVariable)
     {
@@ -70,30 +84,13 @@ public class IndexJoinNode
         this.probeSource = requireNonNull(probeSource, "probeSource is null");
         this.indexSource = requireNonNull(indexSource, "indexSource is null");
         this.criteria = ImmutableList.copyOf(requireNonNull(criteria, "criteria is null"));
+        this.filter = requireNonNull(filter, "filter is null");
         this.probeHashVariable = requireNonNull(probeHashVariable, "probeHashVariable is null");
         this.indexHashVariable = requireNonNull(indexHashVariable, "indexHashVariable is null");
     }
 
-    public enum Type
-    {
-        INNER("Inner"),
-        SOURCE_OUTER("SourceOuter");
-
-        private final String joinLabel;
-
-        private Type(String joinLabel)
-        {
-            this.joinLabel = joinLabel;
-        }
-
-        public String getJoinLabel()
-        {
-            return joinLabel;
-        }
-    }
-
     @JsonProperty
-    public Type getType()
+    public JoinType getType()
     {
         return type;
     }
@@ -114,6 +111,12 @@ public class IndexJoinNode
     public List<EquiJoinClause> getCriteria()
     {
         return criteria;
+    }
+
+    @JsonProperty
+    public Optional<RowExpression> getFilter()
+    {
+        return filter;
     }
 
     @JsonProperty
@@ -153,13 +156,33 @@ public class IndexJoinNode
     public PlanNode replaceChildren(List<PlanNode> newChildren)
     {
         checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
-        return new IndexJoinNode(getSourceLocation(), getId(), getStatsEquivalentPlanNode(), type, newChildren.get(0), newChildren.get(1), criteria, probeHashVariable, indexHashVariable);
+        return new IndexJoinNode(
+                getSourceLocation(),
+                getId(),
+                getStatsEquivalentPlanNode(),
+                type,
+                newChildren.get(0),
+                newChildren.get(1),
+                criteria,
+                filter,
+                probeHashVariable,
+                indexHashVariable);
     }
 
     @Override
     public PlanNode assignStatsEquivalentPlanNode(Optional<PlanNode> statsEquivalentPlanNode)
     {
-        return new IndexJoinNode(getSourceLocation(), getId(), statsEquivalentPlanNode, type, probeSource, indexSource, criteria, probeHashVariable, indexHashVariable);
+        return new IndexJoinNode(
+                getSourceLocation(),
+                getId(),
+                statsEquivalentPlanNode,
+                type,
+                probeSource,
+                indexSource,
+                criteria,
+                filter,
+                probeHashVariable,
+                indexHashVariable);
     }
 
     public static class EquiJoinClause
@@ -168,19 +191,19 @@ public class IndexJoinNode
         private final VariableReferenceExpression index;
 
         @JsonCreator
-        public EquiJoinClause(@JsonProperty("probe") VariableReferenceExpression probe, @JsonProperty("index") VariableReferenceExpression index)
+        public EquiJoinClause(@JsonProperty("left") VariableReferenceExpression probe, @JsonProperty("right") VariableReferenceExpression index)
         {
             this.probe = requireNonNull(probe, "probe is null");
             this.index = requireNonNull(index, "index is null");
         }
 
-        @JsonProperty("probe")
+        @JsonProperty("left")
         public VariableReferenceExpression getProbe()
         {
             return probe;
         }
 
-        @JsonProperty("index")
+        @JsonProperty("right")
         public VariableReferenceExpression getIndex()
         {
             return index;

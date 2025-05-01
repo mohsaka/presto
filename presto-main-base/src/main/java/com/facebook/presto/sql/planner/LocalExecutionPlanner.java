@@ -40,7 +40,6 @@ import com.facebook.presto.execution.scheduler.ExecutionWriterTarget.InsertHandl
 import com.facebook.presto.execution.scheduler.ExecutionWriterTarget.RefreshMaterializedViewHandle;
 import com.facebook.presto.execution.scheduler.ExecutionWriterTarget.UpdateHandle;
 import com.facebook.presto.execution.scheduler.TableWriteInfo;
-import com.facebook.presto.execution.scheduler.TableWriteInfo.DeleteScanInfo;
 import com.facebook.presto.expressions.DynamicFilters;
 import com.facebook.presto.expressions.DynamicFilters.DynamicFilterExtractResult;
 import com.facebook.presto.expressions.DynamicFilters.DynamicFilterPlaceholder;
@@ -268,6 +267,7 @@ import static com.facebook.presto.SystemSessionProperties.getAdaptivePartialAggr
 import static com.facebook.presto.SystemSessionProperties.getDynamicFilteringMaxPerDriverRowCount;
 import static com.facebook.presto.SystemSessionProperties.getDynamicFilteringMaxPerDriverSize;
 import static com.facebook.presto.SystemSessionProperties.getDynamicFilteringRangeRowLimitPerDriver;
+import static com.facebook.presto.SystemSessionProperties.getExchangeCompressionCodec;
 import static com.facebook.presto.SystemSessionProperties.getFilterAndProjectMinOutputPageRowCount;
 import static com.facebook.presto.SystemSessionProperties.getFilterAndProjectMinOutputPageSize;
 import static com.facebook.presto.SystemSessionProperties.getIndexLoaderTimeout;
@@ -277,7 +277,6 @@ import static com.facebook.presto.SystemSessionProperties.getTaskWriterCount;
 import static com.facebook.presto.SystemSessionProperties.isAdaptivePartialAggregationEnabled;
 import static com.facebook.presto.SystemSessionProperties.isEnableDynamicFiltering;
 import static com.facebook.presto.SystemSessionProperties.isExchangeChecksumEnabled;
-import static com.facebook.presto.SystemSessionProperties.isExchangeCompressionEnabled;
 import static com.facebook.presto.SystemSessionProperties.isJoinSpillingEnabled;
 import static com.facebook.presto.SystemSessionProperties.isNativeExecutionEnabled;
 import static com.facebook.presto.SystemSessionProperties.isOptimizeCommonSubExpressions;
@@ -651,7 +650,7 @@ public class LocalExecutionPlanner
                                 outputTypes,
                                 pagePreprocessor,
                                 outputPartitioning,
-                                new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session), isExchangeChecksumEnabled(session))))
+                                new PagesSerdeFactory(blockEncodingSerde, getExchangeCompressionCodec(session), isExchangeChecksumEnabled(session))))
                         .build(),
                 context.getDriverInstanceCount(),
                 physicalOperation.getPipelineExecutionStrategy(),
@@ -1555,13 +1554,7 @@ public class LocalExecutionPlanner
             PhysicalOperation source = null;
             if (sourceNode instanceof TableScanNode && locality.equals(LOCAL)) {
                 TableScanNode tableScanNode = (TableScanNode) sourceNode;
-                Optional<DeleteScanInfo> deleteScanInfo = context.getTableWriteInfo().getDeleteScanInfo();
-                if (deleteScanInfo.isPresent() && deleteScanInfo.get().getId() == tableScanNode.getId()) {
-                    table = deleteScanInfo.get().getTableHandle();
-                }
-                else {
-                    table = tableScanNode.getTable();
-                }
+                table = tableScanNode.getTable();
 
                 // extract the column handles and channel to type mapping
                 sourceLayout = new LinkedHashMap<>();
@@ -1715,14 +1708,7 @@ public class LocalExecutionPlanner
                 columns.add(node.getAssignments().get(variable));
             }
 
-            TableHandle tableHandle;
-            Optional<DeleteScanInfo> deleteScanInfo = context.getTableWriteInfo().getDeleteScanInfo();
-            if (deleteScanInfo.isPresent() && deleteScanInfo.get().getId() == node.getId()) {
-                tableHandle = deleteScanInfo.get().getTableHandle();
-            }
-            else {
-                tableHandle = node.getTable();
-            }
+            TableHandle tableHandle = node.getTable();
             OperatorFactory operatorFactory = new TableScanOperatorFactory(context.getNextOperatorId(), node.getId(), pageSourceProvider, tableHandle, columns);
             return new PhysicalOperation(operatorFactory, makeLayout(node), context, stageExecutionDescriptor.isScanGroupedExecution(node.getId()) ? GROUPED_EXECUTION : UNGROUPED_EXECUTION);
         }

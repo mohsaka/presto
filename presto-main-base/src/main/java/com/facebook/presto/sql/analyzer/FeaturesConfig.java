@@ -17,6 +17,7 @@ import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
 import com.facebook.airlift.configuration.DefunctConfig;
 import com.facebook.airlift.configuration.LegacyConfig;
+import com.facebook.presto.CompressionCodec;
 import com.facebook.presto.common.function.OperatorType;
 import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.sql.tree.CreateView;
@@ -116,7 +117,7 @@ public class FeaturesConfig
     private boolean enableIntermediateAggregations;
     private boolean optimizeCaseExpressionPredicate;
     private boolean pushTableWriteThroughUnion = true;
-    private boolean exchangeCompressionEnabled;
+    private CompressionCodec exchangeCompressionCodec = CompressionCodec.NONE;
     private boolean exchangeChecksumEnabled;
     private boolean optimizeMixedDistinctAggregations;
     private boolean forceSingleNodeOutput = true;
@@ -292,6 +293,8 @@ public class FeaturesConfig
 
     private boolean setExcludeInvalidWorkerSessionProperties;
     private int eagerPlanValidationThreadPoolSize = 20;
+    private boolean innerJoinPushdownEnabled;
+    private boolean inEqualityJoinPushdownEnabled;
 
     private boolean prestoSparkExecutionEnvironment;
     private boolean singleNodeExecutionEnabled;
@@ -1490,9 +1493,9 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isExchangeCompressionEnabled()
+    public CompressionCodec getExchangeCompressionCodec()
     {
-        return exchangeCompressionEnabled;
+        return exchangeCompressionCodec;
     }
 
     public boolean isExchangeChecksumEnabled()
@@ -1500,10 +1503,10 @@ public class FeaturesConfig
         return exchangeChecksumEnabled;
     }
 
-    @Config("exchange.compression-enabled")
-    public FeaturesConfig setExchangeCompressionEnabled(boolean exchangeCompressionEnabled)
+    @Config("exchange.compression-codec")
+    public FeaturesConfig setExchangeCompressionCodec(CompressionCodec exchangeCompressionCodec)
     {
-        this.exchangeCompressionEnabled = exchangeCompressionEnabled;
+        this.exchangeCompressionCodec = exchangeCompressionCodec;
         return this;
     }
 
@@ -2884,6 +2887,31 @@ public class FeaturesConfig
         return this.eagerPlanValidationThreadPoolSize;
     }
 
+    @Config("optimizer.inner-join-pushdown-enabled")
+    @ConfigDescription("Push down inner join predicates to database")
+    public FeaturesConfig setInnerJoinPushdownEnabled(boolean innerJoinPushdownEnabled)
+    {
+        this.innerJoinPushdownEnabled = innerJoinPushdownEnabled;
+        return this;
+    }
+
+    public boolean isInnerJoinPushdownEnabled()
+    {
+        return innerJoinPushdownEnabled;
+    }
+
+    @Config("optimizer.inequality-join-pushdown-enabled")
+    @ConfigDescription("Push down inner join inequality predicates to database")
+    public FeaturesConfig setInEqualityJoinPushdownEnabled(boolean inEqualityJoinPushdownEnabled)
+    {
+        this.inEqualityJoinPushdownEnabled = inEqualityJoinPushdownEnabled;
+        return this;
+    }
+
+    public boolean isInEqualityJoinPushdownEnabled()
+    {
+        return inEqualityJoinPushdownEnabled;
+    }
     public boolean isPrestoSparkExecutionEnvironment()
     {
         return prestoSparkExecutionEnvironment;
