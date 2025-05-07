@@ -347,7 +347,7 @@ public class QueryBuilder
         return identifierQuote + name + identifierQuote;
     }
 
-    private static void bindValue(Object value, JdbcColumnHandle columnHandle, ImmutableList.Builder<TypeAndValue> accumulatorBuilder)
+    private void bindValue(Object value, JdbcColumnHandle columnHandle, ImmutableList.Builder<TypeAndValue> accumulatorBuilder)
     {
         Type type = columnHandle.getColumnType();
         accumulatorBuilder.add(new TypeAndValue(type, value));
