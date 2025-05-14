@@ -1557,21 +1557,26 @@ void PrestoServer::handleCatalogRegisterRequest(
     std::vector<std::string>& catalogNames) {
 
   static const std::string kPropertiesExtension = ".properties";
-  const auto& queryParams = message->getQueryParams();
-  auto it = queryParams.find("catalog");
+  const auto& params = message->getQueryParams();
+  auto catalog = params.find("catalog");
 
-  if (it == queryParams.end()) {
+  if (catalog == params.end()) {
     proxygen::ResponseBuilder(downstream)
         .status(400, "Bad Request")
         .body("Missing 'catalog' query parameter")
         .sendWithEOM();
     return;
   }
-  std::string catalogPath = configDirectoryPath_ + "/catalog/" + it->second + kPropertiesExtension;
+  std::string catalogPath = configDirectoryPath_ + "/catalog/" + catalog->second + kPropertiesExtension;
 
   try {
     std::string newCatalog = registerCatalog(catalogPath);
     catalogNames.emplace_back(newCatalog);
+    announcer_->updateConnectorIds(catalogNames);
+
+    // Force announcement to let the coordinator know about the new catalog
+    // This doesn't seem to fix the issue.
+    announcer_->sendRequest();
     proxygen::ResponseBuilder(downstream)
         .status(200, "OK")
         .header("Content-Type", "text/plain")
