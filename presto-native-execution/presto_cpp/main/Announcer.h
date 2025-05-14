@@ -39,12 +39,14 @@ class Announcer : public PeriodicServiceInventoryManager {
 
   ~Announcer() = default;
 
+  void updateConnectorIds(const std::vector<std::string>& newIds);
+
  protected:
   std::tuple<proxygen::HTTPMessage, std::string> httpRequest() override;
 
  private:
-  const std::string announcementBody_;
-  const proxygen::HTTPMessage announcementRequest_;
+  std::string announcementBody_;
+  proxygen::HTTPMessage announcementRequest_;
 };
 
 } // namespace facebook::presto
