@@ -1589,6 +1589,15 @@ public class TestLogicalPlanner
                                                 .withAlias("row_num", new RowNumberSymbolMatcher())))));
     }
 
+    @Test
+    public void testRewriteExcludeColumnsFunctionToProjection()
+    {
+        assertPlan("SELECT *\n" +
+                        "FROM TABLE(system.builtin.exclude_columns(\n" +
+                        "    INPUT => TABLE(orders),\n" +
+                        "    COLUMNS => DESCRIPTOR(comment)))\n",
+                output(tableScan("orders")));
+    }
     private Session noJoinReordering()
     {
         return Session.builder(this.getQueryRunner().getDefaultSession())
@@ -1905,5 +1914,12 @@ public class TestLogicalPlanner
                                                                 tableScan("partsupp", ImmutableMap.of("partkey_0", "partkey", "suppkey", "suppkey"))),
                                                         anyTree(
                                                                 tableScan("supplier", ImmutableMap.of("suppkey_4", "suppkey")))))))));
+    }
+
+    @Test
+    public void testSubselectQualifiedObjectNameContainsDot()
+    {
+        String query = "SELECT min((SELECT totalprice FROM orders WHERE orderstatus = \"Outer.Table\".\"orderstatus\")) as min FROM orders AS \"Outer.Table\"";
+        assertPlanSucceeded(query, this.getQueryRunner().getDefaultSession());
     }
 }

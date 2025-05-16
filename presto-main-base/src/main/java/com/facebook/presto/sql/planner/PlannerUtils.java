@@ -44,6 +44,7 @@ import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.analyzer.Field;
 import com.facebook.presto.sql.planner.iterative.Lookup;
+import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.planPrinter.PlanPrinter;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.tree.ComparisonExpression;
@@ -198,6 +199,9 @@ public class PlannerUtils
         // When source node output duplicate variables (at least possible for LateralJoin node), it will fail the assignment builder, skip here
         if (variableMap.isEmpty() || source.getOutputVariables().stream().noneMatch(variableMap::containsKey)
                 || source.getOutputVariables().stream().distinct().count() != source.getOutputVariables().size()) {
+            return source;
+        }
+        if (source instanceof ProjectNode && ((ProjectNode) source).getAssignments().getMap().equals(variableMap)) {
             return source;
         }
         Assignments.Builder assignmentsBuilder = Assignments.builder();
@@ -509,6 +513,25 @@ public class PlannerUtils
         return searchFrom(plan, lookup)
                 .where(planNode -> planNode instanceof TableScanNode && isInternalSystemConnector(((TableScanNode) planNode).getTable().getConnectorId()))
                 .matches();
+    }
+
+    /// Checks whether a node is directly on top of a system table scan without exchange in between
+    public static boolean directlyOnSystemTableScan(PlanNode plan, Lookup lookup)
+    {
+        plan = lookup.resolve(plan);
+        for (PlanNode source : plan.getSources()) {
+            source = lookup.resolve(source);
+            if (source instanceof TableScanNode && isInternalSystemConnector(((TableScanNode) source).getTable().getConnectorId())) {
+                return true;
+            }
+            if (source instanceof ExchangeNode) {
+                continue;
+            }
+            if (directlyOnSystemTableScan(source, lookup)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static boolean isConstant(RowExpression expression, Type type, Object value)
