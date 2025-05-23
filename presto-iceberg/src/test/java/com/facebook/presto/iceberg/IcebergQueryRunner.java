@@ -32,6 +32,7 @@ import com.facebook.presto.iceberg.hive.IcebergFileHiveMetastore;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.ExternalWorker;
 import com.facebook.presto.tpcds.TpcdsPlugin;
 import com.facebook.presto.tpch.TpchPlugin;
 import com.google.common.collect.ImmutableMap;
@@ -117,7 +118,7 @@ public final class IcebergQueryRunner
         private boolean createTpchTables = true;
         private boolean addJmxPlugin = true;
         private OptionalInt nodeCount = OptionalInt.of(4);
-        private Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
+        private Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher = Optional.empty();
         private Optional<Path> dataDirectory = Optional.empty();
         private boolean addStorageFormatToPath;
         private Optional<String> schemaName = Optional.empty();
@@ -128,7 +129,7 @@ public final class IcebergQueryRunner
             return this;
         }
 
-        public Builder setExternalWorkerLauncher(Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher)
+        public Builder setExternalWorkerLauncher(Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher)
         {
             this.externalWorkerLauncher = externalWorkerLauncher;
             return this;

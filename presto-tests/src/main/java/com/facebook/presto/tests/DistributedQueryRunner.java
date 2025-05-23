@@ -116,7 +116,7 @@ public class DistributedQueryRunner
     private final List<TestingPrestoServer> coordinators;
     private final int coordinatorCount;
     private final List<TestingPrestoServer> servers;
-    private final List<Process> externalWorkers;
+    private final List<ExternalWorker> externalWorkers;
     private final List<Module> extraModules;
 
     private final Closer closer = Closer.create();
@@ -186,7 +186,7 @@ public class DistributedQueryRunner
             SqlParserOptions parserOptions,
             String environment,
             Optional<Path> dataDirectory,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher,
+            Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher,
             List<Module> extraModules)
             throws Exception
     {
@@ -209,14 +209,14 @@ public class DistributedQueryRunner
             Map<String, String> extraCoordinatorProperties = new HashMap<>();
 
             if (externalWorkerLauncher.isPresent()) {
-                ImmutableList.Builder<Process> externalWorkersBuilder = ImmutableList.builder();
+                ImmutableList.Builder<ExternalWorker> externalWorkersBuilder = ImmutableList.builder();
                 for (int i = 0; i < nodeCount; i++) {
                     externalWorkersBuilder.add(externalWorkerLauncher.get().apply(i, discoveryUrl));
                 }
                 externalWorkers = externalWorkersBuilder.build();
                 closer.register(() -> {
-                    for (Process worker : externalWorkers) {
-                        worker.destroyForcibly();
+                    for (ExternalWorker worker : externalWorkers) {
+                        worker.process.destroyForcibly();
                     }
                 });
 
@@ -688,6 +688,11 @@ public class DistributedQueryRunner
         return getServers().stream().filter(server -> !server.isResourceManager()).collect(ImmutableList.toImmutableList());
     }
 
+    public List<ExternalWorker> getExternalWorkers()
+    {
+        return externalWorkers;
+    }
+
     public List<TestingPrestoServer> getServers()
     {
         return ImmutableList.copyOf(servers);
@@ -1026,7 +1031,7 @@ public class DistributedQueryRunner
         private SqlParserOptions parserOptions = DEFAULT_SQL_PARSER_OPTIONS;
         private String environment = ENVIRONMENT;
         private Optional<Path> dataDirectory = Optional.empty();
-        private Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
+        private Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher = Optional.empty();
         private boolean resourceManagerEnabled;
         private boolean catalogServerEnabled;
         private boolean coordinatorSidecarEnabled;
@@ -1126,7 +1131,7 @@ public class DistributedQueryRunner
             return this;
         }
 
-        public Builder setExternalWorkerLauncher(Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher)
+        public Builder setExternalWorkerLauncher(Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher)
         {
             this.externalWorkerLauncher = requireNonNull(externalWorkerLauncher, "externalWorkerLauncher is null");
             return this;
