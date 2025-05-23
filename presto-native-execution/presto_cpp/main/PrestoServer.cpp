@@ -542,6 +542,14 @@ void PrestoServer::run() {
     taskManager_->setBaseUri(taskUri);
   };
 
+  httpServer_->registerPut("/v1/catalog/register",
+                           [server = this, &catalogNames](
+                               proxygen::HTTPMessage* message,
+                               const std::vector<std::unique_ptr<folly::IOBuf>>& /*body*/,
+                               proxygen::ResponseHandler* downstream) {
+                             server->handleCatalogRegisterRequest(message, downstream, catalogNames);
+                           });
+
   auto startAnnouncerAndHeartbeatManagerCb = [&](bool useHttps, int port) {
     if (coordinatorDiscoverer_ != nullptr) {
       announcer_ = std::make_unique<Announcer>(
@@ -1176,37 +1184,7 @@ std::vector<std::string> PrestoServer::registerVeloxConnectors(
   for (const auto& entry :
        fs::directory_iterator(configDirectoryPath / "catalog")) {
     if (entry.path().extension() == kPropertiesExtension) {
-      auto fileName = entry.path().filename().string();
-      auto catalogName =
-          fileName.substr(0, fileName.size() - kPropertiesExtension.size());
-
-      auto connectorConf = util::readConfig(entry.path());
-      PRESTO_STARTUP_LOG(INFO)
-          << "Registered catalog property keys from " << entry.path() << ":\n"
-          << logConnectorConfigPropertyKeys(connectorConf);
-
-      std::shared_ptr<const velox::config::ConfigBase> properties =
-          std::make_shared<const velox::config::ConfigBase>(
-              std::move(connectorConf));
-
-      auto connectorName = util::requiredProperty(*properties, kConnectorName);
-
-      catalogNames.emplace_back(catalogName);
-
-      PRESTO_STARTUP_LOG(INFO) << "Registering catalog " << catalogName
-                               << " using connector " << connectorName;
-
-      // make sure connector type is supported
-      getPrestoToVeloxConnector(connectorName);
-
-      std::shared_ptr<velox::connector::Connector> connector =
-          velox::connector::getConnectorFactory(connectorName)
-              ->newConnector(
-                  catalogName,
-                  std::move(properties),
-                  connectorIoExecutor_.get(),
-                  connectorCpuExecutor_.get());
-      velox::connector::registerConnector(connector);
+      catalogNames.emplace_back(registerCatalog(entry));
     }
   }
   return catalogNames;
@@ -1219,6 +1197,46 @@ void PrestoServer::registerSystemConnector() {
   auto systemConnector =
       std::make_shared<SystemConnector>("$system@system", taskManager_.get());
   velox::connector::registerConnector(systemConnector);
+}
+
+std::string PrestoServer::registerCatalog(
+  const fs::path& configPath) {
+static const std::string kPropertiesExtension = ".properties";
+
+std::string catalogName;
+const std::filesystem::directory_entry entry(configPath);
+if (entry.path().extension() == kPropertiesExtension) {
+  auto fileName = entry.path().filename().string();
+  catalogName =
+      fileName.substr(0, fileName.size() - kPropertiesExtension.size());
+
+  auto connectorConf = util::readConfig(entry.path());
+  PRESTO_STARTUP_LOG(INFO)
+      << "Registered catalog property keys from " << entry.path() << ":\n"
+      << logConnectorConfigPropertyKeys(connectorConf);
+
+  std::shared_ptr<const velox::config::ConfigBase> properties =
+      std::make_shared<const velox::config::ConfigBase>(
+          std::move(connectorConf));
+
+  auto connectorName = util::requiredProperty(*properties, kConnectorName);
+
+  PRESTO_STARTUP_LOG(INFO) << "Registering catalog " << catalogName
+                           << " using connector " << connectorName;
+
+  // make sure connector type is supported
+  getPrestoToVeloxConnector(connectorName);
+
+  std::shared_ptr<velox::connector::Connector> connector =
+      velox::connector::getConnectorFactory(connectorName)
+          ->newConnector(
+              catalogName,
+              std::move(properties),
+              connectorIoExecutor_.get(),
+              connectorCpuExecutor_.get());
+  velox::connector::registerConnector(connector);
+}
+return catalogName;
 }
 
 void PrestoServer::unregisterConnectors() {
@@ -1566,6 +1584,44 @@ void PrestoServer::handleGracefulShutdown(
   } else {
     LOG(ERROR) << "Bad Request. Received body content: " << bodyContent;
     http::sendErrorResponse(downstream, "Bad Request", http::kHttpBadRequest);
+  }
+}
+
+void PrestoServer::handleCatalogRegisterRequest(
+    proxygen::HTTPMessage* message,
+    proxygen::ResponseHandler* downstream,
+    std::vector<std::string>& catalogNames) {
+
+  static const std::string kPropertiesExtension = ".properties";
+  const auto& params = message->getQueryParams();
+  auto catalog = params.find("catalog");
+
+  if (catalog == params.end()) {
+    proxygen::ResponseBuilder(downstream)
+        .status(400, "Bad Request")
+        .body("Missing 'catalog' query parameter")
+        .sendWithEOM();
+    return;
+  }
+  std::string catalogPath = configDirectoryPath_ + "/catalog/" + catalog->second + kPropertiesExtension;
+
+  try {
+    std::string newCatalog = registerCatalog(catalogPath);
+    catalogNames.emplace_back(newCatalog);
+    announcer_->updateConnectorIds(catalogNames);
+
+    // Force announcement to let the coordinator know about the new catalog
+    announcer_->sendRequest();
+    proxygen::ResponseBuilder(downstream)
+        .status(200, "OK")
+        .header("Content-Type", "text/plain")
+        .body("Successfully registered catalog: " + newCatalog)
+        .sendWithEOM();
+  } catch (const std::exception& e) {
+    proxygen::ResponseBuilder(downstream)
+        .status(500, "Internal Server Error")
+        .body("Failed to register catalog: " + std::string(e.what()))
+        .sendWithEOM();
   }
 }
 

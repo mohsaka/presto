@@ -20,6 +20,7 @@ import com.facebook.plugin.arrow.testingConnector.TestingArrowFlightPlugin;
 import com.facebook.plugin.arrow.testingServer.TestingArrowProducer;
 import com.facebook.presto.Session;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.ExternalWorker;
 import com.google.common.collect.ImmutableMap;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
@@ -61,7 +62,7 @@ public class ArrowFlightQueryRunner
             int flightServerPort,
             Map<String, String> extraProperties,
             Map<String, String> coordinatorProperties,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher)
+            Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher)
             throws Exception
     {
         return createQueryRunner(extraProperties, ImmutableMap.of("arrow-flight.server.port", String.valueOf(flightServerPort)), coordinatorProperties, externalWorkerLauncher);
@@ -71,7 +72,7 @@ public class ArrowFlightQueryRunner
             Map<String, String> extraProperties,
             Map<String, String> catalogProperties,
             Map<String, String> coordinatorProperties,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher)
+            Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher)
             throws Exception
     {
         Session session = testSessionBuilder()

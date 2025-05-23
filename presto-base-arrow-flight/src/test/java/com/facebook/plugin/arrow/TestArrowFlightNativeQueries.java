@@ -19,6 +19,7 @@ import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.ExternalWorker;
 import com.google.common.collect.ImmutableMap;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
@@ -338,7 +339,7 @@ public class TestArrowFlightNativeQueries
                 .build();
     }
 
-    public static Optional<BiFunction<Integer, URI, Process>> getExternalWorkerLauncher(String prestoServerPath, int flightServerPort, String flightCertPath)
+    public static Optional<BiFunction<Integer, URI, ExternalWorker>> getExternalWorkerLauncher(String prestoServerPath, int flightServerPort, String flightCertPath)
     {
         return
                 Optional.of((workerIndex, discoveryUri) -> {
@@ -372,12 +373,12 @@ public class TestArrowFlightNativeQueries
                                        "arrow-flight.server-ssl-certificate=%s", ARROW_FLIGHT_CONNECTOR, flightServerPort, flightCertPath).getBytes());
 
                         // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
-                        return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1")
+                        return new ExternalWorker(new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1")
                                 .directory(tempDirectoryPath.toFile())
                                 .redirectErrorStream(true)
                                 .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
                                 .redirectError(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
-                                .start();
+                                .start(), tempDirectoryPath.toString());
                     }
                     catch (IOException e) {
                         throw new UncheckedIOException(e);

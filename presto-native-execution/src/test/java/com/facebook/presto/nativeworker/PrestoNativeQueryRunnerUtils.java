@@ -29,6 +29,7 @@ import com.facebook.presto.iceberg.IcebergQueryRunner;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.ExternalWorker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -160,7 +161,7 @@ public class PrestoNativeQueryRunnerUtils
     public static QueryRunner createJavaQueryRunner(Optional<Path> dataDirectory, String storageFormat, boolean addStorageFormatToPath)
             throws Exception
     {
-        return createJavaQueryRunner(dataDirectory, "sql-standard", storageFormat, addStorageFormatToPath);
+        return createJavaQueryRunner(dataDirectory, "legacy", storageFormat, addStorageFormatToPath);
     }
 
     public static QueryRunner createJavaQueryRunner(Optional<Path> baseDataDirectory, String security, String storageFormat, boolean addStorageFormatToPath)
@@ -538,7 +539,7 @@ public class PrestoNativeQueryRunnerUtils
         return new NativeQueryRunnerParameters(prestoServerPath, dataDirectory, workerCount);
     }
 
-    public static Optional<BiFunction<Integer, URI, Process>> getExternalWorkerLauncher(
+    public static Optional<BiFunction<Integer, URI, ExternalWorker>> getExternalWorkerLauncher(
             String catalogName,
             String prestoServerPath,
             int cacheMaxSize,
@@ -624,12 +625,12 @@ public class PrestoNativeQueryRunnerUtils
                                 format("connector.name=tpch%n").getBytes());
 
                         // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
-                        return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
+                        return new ExternalWorker(new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1", "--velox_ssd_odirect=false")
                                 .directory(tempDirectoryPath.toFile())
                                 .redirectErrorStream(true)
                                 .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
                                 .redirectError(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))
-                                .start();
+                                .start(), tempDirectoryPath.toString());
                     }
                     catch (IOException e) {
                         throw new UncheckedIOException(e);

@@ -33,6 +33,7 @@ import com.facebook.presto.spi.security.SelectedRole;
 import com.facebook.presto.spi.statistics.HistoryBasedPlanStatisticsProvider;
 import com.facebook.presto.testing.InMemoryHistoryBasedPlanStatisticsProvider;
 import com.facebook.presto.tests.DistributedQueryRunner;
+import com.facebook.presto.tests.ExternalWorker;
 import com.facebook.presto.tests.tpcds.TpcdsTableName;
 import com.facebook.presto.tpcds.TpcdsPlugin;
 import com.facebook.presto.tpch.TpchPlugin;
@@ -77,6 +78,7 @@ public final class HiveQueryRunner
     }
 
     public static final String HIVE_CATALOG = "hive";
+    public static final String HIVE_CATALOG_2 = "hive2";
     public static final String HIVE_BUCKETED_CATALOG = "hive_bucketed";
     public static final String TPCH_SCHEMA = "tpch";
     public static final String TPCH_BUCKETED_SCHEMA = "tpch_bucketed";
@@ -158,7 +160,7 @@ public final class HiveQueryRunner
             Map<String, String> extraHiveProperties,
             Optional<Integer> workerCount,
             Optional<Path> dataDirectory,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher,
+            Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher,
             Map<String, String> tpcdsProperties)
             throws Exception
     {
@@ -174,7 +176,7 @@ public final class HiveQueryRunner
             Map<String, String> extraHiveProperties,
             Optional<Integer> workerCount,
             Optional<Path> dataDirectory,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher,
+            Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher,
             Optional<ExtendedHiveMetastore> externalMetastore,
             Map<String, String> tpcdsProperties)
             throws Exception
@@ -203,7 +205,7 @@ public final class HiveQueryRunner
             Map<String, String> extraHiveProperties,
             Optional<Integer> workerCount,
             Optional<Path> dataDirectory,
-            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher,
+            Optional<BiFunction<Integer, URI, ExternalWorker>> externalWorkerLauncher,
             Optional<ExtendedHiveMetastore> externalMetastore,
             boolean addJmxPlugin,
             Map<String, String> tpcdsProperties)
@@ -274,6 +276,7 @@ public final class HiveQueryRunner
             hiveBucketedProperties = ImmutableMap.copyOf(hiveBucketedProperties);
 
             queryRunner.createCatalog(HIVE_CATALOG, HIVE_CATALOG, hiveProperties);
+            queryRunner.createCatalog(HIVE_CATALOG_2, HIVE_CATALOG, hiveProperties);
             queryRunner.createCatalog(HIVE_BUCKETED_CATALOG, HIVE_CATALOG, hiveBucketedProperties);
 
             List<String> tpchTableNames = getTpchTableNames(tpchTables);
