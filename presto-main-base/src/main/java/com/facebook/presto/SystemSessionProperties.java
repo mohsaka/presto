@@ -90,6 +90,7 @@ public final class SystemSessionProperties
     public static final String IS_QUERY_REWRITER_PLUGIN_SUCCEEDED = "is_query_rewriter_plugin_succeeded";
 
     public static final String SIZE_BASED_JOIN_FLIPPING_ENABLED = "optimizer_size_based_join_flipping_enabled";
+    public static final String MAX_PREFIXES_COUNT = "max_prefixes_count";
 
     public static final String OPTIMIZE_HASH_GENERATION = "optimize_hash_generation";
     public static final String JOIN_DISTRIBUTION_TYPE = "join_distribution_type";
@@ -387,6 +388,11 @@ public final class SystemSessionProperties
             HistoryBasedOptimizationConfig historyBasedOptimizationConfig)
     {
         sessionProperties = ImmutableList.of(
+                integerProperty(
+                        MAX_PREFIXES_COUNT,
+                        "Max prefixes count, tune for show queries performance improvement",
+                        featuresConfig.getMaxPrefixesCount(),
+                        false),
                 booleanProperty(
                         SIZE_BASED_JOIN_FLIPPING_ENABLED,
                         "flip join sides when determining join distribution type based on estimated statistics",
@@ -1946,6 +1952,11 @@ public final class SystemSessionProperties
     public static boolean isQueryRewriterPluginEnabled(Session session)
     {
         return session.getSystemProperty(IS_QUERY_REWRITER_PLUGIN_ENABLED, Boolean.class);
+    }
+
+    public static int getMaxPrefixesCount(Session session)
+    {
+        return session.getSystemProperty(MAX_PREFIXES_COUNT, Integer.class);
     }
 
     public static boolean isSizeBasedJoinFlippingEnabled(Session session)
