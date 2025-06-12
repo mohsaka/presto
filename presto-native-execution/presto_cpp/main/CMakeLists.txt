@@ -135,6 +135,10 @@ endif()
 # presto_server_lib.
 target_link_libraries(presto_server presto_server_lib velox_tpch_connector)
 
+if(PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR)
+  target_link_libraries(presto_server presto_flight_connector_ibm_auth)
+endif()
+
 # Clang requires explicit linking with libatomic.
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang"
    AND "${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER_EQUAL 15)

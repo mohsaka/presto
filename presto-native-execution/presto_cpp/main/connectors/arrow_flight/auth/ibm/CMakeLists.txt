@@ -1,5 +1,6 @@
 add_library(
-  presto_flight_connector_ibm_auth CpdAuthenticator.cpp SaasAuthenticator.cpp
+  presto_flight_connector_ibm_auth OBJECT 
+                                   CpdAuthenticator.cpp SaasAuthenticator.cpp
                                    SaasAuthenticatorConfig.cpp)
 
 target_link_libraries(presto_flight_connector_ibm_auth
