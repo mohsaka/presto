@@ -165,7 +165,7 @@ class ArrowFlightConnector : public velox::connector::Connector {
 
 class ArrowFlightConnectorFactory : public velox::connector::ConnectorFactory {
  public:
-  static constexpr const char* kArrowFlightConnectorName = "arrow-flight";
+  static constexpr const char* kArrowFlightConnectorName = "ibm-arrow-flight";
 
   ArrowFlightConnectorFactory() : ConnectorFactory(kArrowFlightConnectorName) {}
 
