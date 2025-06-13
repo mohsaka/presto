@@ -25,6 +25,13 @@ else
 fi
 DEPENDENCY_DIR=${DEPENDENCY_DIR:-$(pwd)}
 
+OS=$(uname)
+if [ "$OS" = "Darwin" ]; then
+  export INSTALL_PREFIX=${INSTALL_PREFIX:-"$(pwd)/deps-install"}
+else
+  export INSTALL_PREFIX=${INSTALL_PREFIX:-"/usr/local"}
+fi
+
 function install_jwt_cpp {
   github_checkout Thalhammer/jwt-cpp v0.6.0 --depth 1
   cmake_install -DBUILD_TESTS=OFF -DJWT_BUILD_EXAMPLES=OFF -DJWT_DISABLE_PICOJSON=ON -DJWT_CMAKE_FILES_INSTALL_DIR="${DEPENDENCY_DIR}/jwt-cpp"
@@ -43,7 +50,7 @@ function install_arrow_flight {
   source "${SCRIPT_DIR}/../velox/scripts/setup-rhel.sh"
   # NOTE: benchmarks are on due to a compilation error with v15.0.0, once updated that can be removed
   # see https://github.com/apache/arrow/issues/41617
-  EXTRA_ARROW_OPTIONS=" -DARROW_FLIGHT=ON "
+  export EXTRA_ARROW_OPTIONS=" -DARROW_FLIGHT=ON -DARROW_BUILD_BENCHMARKS=ON "
   install_arrow
 }
 
