@@ -132,8 +132,9 @@ set(VELOX_ENABLE_EXAMPLES
     OFF
     CACHE BOOL "Enable Velox examples")
 
+# CPR is needed for the IBM SaasAuthenticator used in Arrow Flight.
 set(VELOX_BUILD_TEST_UTILS
-    ${PRESTO_ENABLE_TESTING}
+    ${PRESTO_ENABLE_TESTING} OR ${PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR}
     CACHE BOOL "Enable Velox test utils")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
