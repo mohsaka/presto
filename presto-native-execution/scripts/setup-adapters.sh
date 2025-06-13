@@ -17,6 +17,9 @@ set -e
 set -x
 
 SCRIPT_DIR=$(readlink -f "$(dirname "${BASH_SOURCE[0]}")")
+# Make a copy of SCRIPT_DIR because it is changed when sourcing
+# setup-common.sh. Check if we need a fix in OSS.
+SCRIPT_DIR_COPY=${SCRIPT_DIR}
 if [ -f "${SCRIPT_DIR}/setup-common.sh" ]
 then
   source "${SCRIPT_DIR}/setup-common.sh"
@@ -49,6 +52,7 @@ function install_arrow_flight {
   # Arrow Flight enabled. The Velox version of Arrow is used.
   # NOTE: benchmarks are on due to a compilation error with v15.0.0, once updated that can be removed
   # see https://github.com/apache/arrow/issues/41617
+  source "${SCRIPT_DIR_COPY}/../velox/scripts/setup-rhel.sh"
   EXTRA_ARROW_OPTIONS=" -DARROW_FLIGHT=ON -DARROW_BUILD_BENCHMARKS=ON "
   install_arrow
 }
