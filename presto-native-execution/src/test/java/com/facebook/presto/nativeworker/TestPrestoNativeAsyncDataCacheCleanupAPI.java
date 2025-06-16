@@ -24,9 +24,9 @@ import org.testng.annotations.Test;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import static com.facebook.presto.nativeworker.NativeApiEndpointUtils.fetchScalarLongMetrics;
+import static com.facebook.presto.nativeworker.NativeApiEndpointUtils.getWorkerNodes;
 import static com.facebook.presto.nativeworker.NativeApiEndpointUtils.sendWorkerRequest;
 import static com.facebook.presto.nativeworker.NativeQueryRunnerUtils.createCustomer;
 import static org.testng.Assert.assertEquals;
