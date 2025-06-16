@@ -36,6 +36,6 @@ RUN mkdir build && \
     (cd build && /scripts/setup-redhat.sh && \
                  source /opt/rh/gcc-toolset-12/enable \
                  source /scripts/setup-magen.sh \
-                 /velox/scripts/setup-adapters.sh aws gcs abfs && \
+                 /velox/scripts/setup-rhel.sh install_adapters && \
                  /scripts/setup-adapters.sh) && \
     rm -rf build
