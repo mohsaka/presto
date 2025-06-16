@@ -32,6 +32,7 @@
     <artifactSet to="plugin/resource-group-managers">
         <artifact id="${project.groupId}:presto-resource-group-managers:zip:${project.version}">
             <unpack />
+            <exclude dir="mysql-connector-j-9.2.0.jar" />
         </artifact>
     </artifactSet>
 
@@ -68,6 +69,7 @@
     <artifactSet to="plugin/function-namespace-managers">
         <artifact id="${project.groupId}:presto-function-namespace-managers:zip:${project.version}">
             <unpack />
+            <exclude dir="mysql-connector-j-9.2.0.jar" />
         </artifact>
     </artifactSet>
 
@@ -146,6 +148,7 @@
     <artifactSet to="plugin/mysql">
         <artifact id="${project.groupId}:presto-mysql:zip:${project.version}">
             <unpack />
+            <exclude dir="mysql-connector-j-9.2.0.jar" />
         </artifact>
     </artifactSet>
 
