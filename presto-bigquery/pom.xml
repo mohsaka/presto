@@ -134,6 +134,13 @@
                 <artifactId>javax.annotation-api</artifactId>
                 <version>1.3.2</version>
             </dependency>
+
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>3.25.8</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -400,6 +407,7 @@
                                 <exclude>jakarta.annotation:jakarta.annotation-api</exclude>
                                 <exclude>com.fasterxml.jackson.core:jackson-databind</exclude>
                                 <exclude>com.google.api.grpc:proto-google-common-protos</exclude>
+                                <exclude>com.google.protobuf:protobuf-java</exclude>
                             </excludes>
                         </requireUpperBoundDeps>
                     </rules>
