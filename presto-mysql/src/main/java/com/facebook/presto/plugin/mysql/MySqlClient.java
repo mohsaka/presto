@@ -237,10 +237,12 @@ public class MySqlClient
                 split.getCatalogName(),
                 split.getSchemaName(),
                 split.getTableName(),
+                split.getJoinTables(),
                 columnHandles,
                 columnExpressions,
                 split.getTupleDomain(),
-                split.getAdditionalPredicate());
+                split.getAdditionalPredicate(),
+                split.getTableAlias());
     }
 
     @Override
