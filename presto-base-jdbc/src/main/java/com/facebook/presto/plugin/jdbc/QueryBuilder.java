@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.plugin.jdbc;
 
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.predicate.Domain;
 import com.facebook.presto.common.predicate.Range;
 import com.facebook.presto.common.predicate.TupleDomain;
@@ -68,6 +69,7 @@ import static java.util.stream.Collectors.joining;
 
 public class QueryBuilder
 {
+    public static final Logger LOG = Logger.get(QueryBuilder.class);
     // not all databases support booleans, so use 1=1 and 1=0 instead
     private static final String ALWAYS_TRUE = "1=1";
     private static final String ALWAYS_FALSE = "1=0";
@@ -139,7 +141,11 @@ public class QueryBuilder
         buildWhereClause(clauses, sql);
 
         sql.append(format("/* %s : %s */", session.getUser(), session.getQueryId()));
-        PreparedStatement statement = client.getPreparedStatement(session, connection, sql.toString());
+
+        String generatedSQLQuery = sql.toString();
+        LOG.debug("Generated query [%s]", generatedSQLQuery);
+
+        PreparedStatement statement = client.getPreparedStatement(session, connection, generatedSQLQuery);
         List<TypeAndValue> accumulator = accumulatorBuilder.build();
         bindParams(accumulator, statement, client, session);
 
