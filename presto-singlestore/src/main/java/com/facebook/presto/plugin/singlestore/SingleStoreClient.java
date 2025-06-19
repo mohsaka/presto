@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.plugin.singlestore;
 
-import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.Type;
 import com.facebook.presto.common.type.VarcharType;
 import com.facebook.presto.plugin.jdbc.BaseJdbcClient;
@@ -23,6 +22,8 @@ import com.facebook.presto.plugin.jdbc.JdbcColumnHandle;
 import com.facebook.presto.plugin.jdbc.JdbcConnectorId;
 import com.facebook.presto.plugin.jdbc.JdbcIdentity;
 import com.facebook.presto.plugin.jdbc.JdbcTableHandle;
+import com.facebook.presto.plugin.jdbc.JdbcTypeHandle;
+import com.facebook.presto.plugin.jdbc.mapping.ColumnMapping;
 import com.facebook.presto.plugin.jdbc.mapping.WriteMapping;
 import com.facebook.presto.plugin.jdbc.mapping.functions.LongWriteFunction;
 import com.facebook.presto.plugin.jdbc.mapping.functions.SliceWriteFunction;
@@ -38,20 +39,20 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.Properties;
 
 import static com.facebook.presto.common.type.RealType.REAL;
+import static com.facebook.presto.common.type.StandardTypes.TIMESTAMP_WITH_TIME_ZONE;
+import static com.facebook.presto.common.type.StandardTypes.UUID;
 import static com.facebook.presto.common.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
-import static com.facebook.presto.common.type.TimestampType.TIMESTAMP;
-import static com.facebook.presto.common.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
-import static com.facebook.presto.common.type.UuidType.UUID;
 import static com.facebook.presto.common.type.VarbinaryType.VARBINARY;
+import static com.facebook.presto.common.type.VarcharType.createUnboundedVarcharType;
 import static com.facebook.presto.common.type.Varchars.isVarcharType;
 import static com.facebook.presto.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
 import static com.facebook.presto.plugin.jdbc.mapping.StandardColumnMappings.realColumnMapping;
-import static com.facebook.presto.plugin.jdbc.mapping.StandardColumnMappings.timestampColumnMapping;
 import static com.facebook.presto.plugin.jdbc.mapping.StandardColumnMappings.varbinaryColumnMapping;
 import static com.facebook.presto.plugin.jdbc.mapping.StandardColumnMappings.varcharColumnMapping;
 import static com.facebook.presto.plugin.jdbc.mapping.WriteMapping.longMapping;
@@ -135,18 +136,12 @@ public class SingleStoreClient
     @Override
     public WriteMapping toWriteMapping(Type type)
     {
-        if (REAL.equals(type)) {
-            return longMapping("float", (LongWriteFunction) realColumnMapping().getWriteFunction());
-        }
         if (TIME_WITH_TIME_ZONE.equals(type) ||
                 TIMESTAMP_WITH_TIME_ZONE.equals(type) || UUID.equals(type)) {
             throw new PrestoException(NOT_SUPPORTED, "Unsupported column type: " + type.getDisplayName());
         }
-        if (TIMESTAMP.equals(type)) {
-            return longMapping("datetime", (LongWriteFunction) timestampColumnMapping((TimestampType) type).getWriteFunction());
-        }
-        if (VARBINARY.equals(type)) {
-            return sliceMapping("mediumblob", (SliceWriteFunction) varbinaryColumnMapping().getWriteFunction());
+        if (REAL.equals(type)) {
+            return longMapping("float", (LongWriteFunction) realColumnMapping().getWriteFunction());
         }
         if (isVarcharType(type)) {
             VarcharType varcharType = (VarcharType) type;
@@ -154,19 +149,23 @@ public class SingleStoreClient
             if (varcharType.isUnbounded()) {
                 dataType = "longtext";
             }
-            else if (varcharType.getLengthSafe() <= 255) {
-                dataType = "tinytext";
+            else if (varcharType.getLengthSafe() <= 21844) {
+                // 21844 is the maximum length a singlestore varchar supports.
+                return super.toWriteMapping(type);
             }
-            else if (varcharType.getLengthSafe() <= 65535) {
-                dataType = "text";
-            }
-            else if (varcharType.getLengthSafe() <= 16777215) {
+            else if (varcharType.getLengthSafe() <= 5592405) { // 16MB
                 dataType = "mediumtext";
             }
+            else if (varcharType.getLengthSafe() <= 1431655765) { // 100MB to 1GB
+                dataType = "longtext"; // max = 1431655765
+            }
             else {
-                dataType = "longtext";
+                throw new PrestoException(NOT_SUPPORTED, "Unsupported column width: " + varcharType.getLengthSafe());
             }
             return sliceMapping(dataType, (SliceWriteFunction) varcharColumnMapping(varcharType).getWriteFunction());
+        }
+        if (VARBINARY.equals(type)) {
+            return sliceMapping("mediumblob", (SliceWriteFunction) varbinaryColumnMapping().getWriteFunction());
         }
         return super.toWriteMapping(type);
     }
@@ -204,6 +203,18 @@ public class SingleStoreClient
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
         }
+    }
+
+    @Override
+    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, JdbcTypeHandle typeHandle)
+    {
+        switch (typeHandle.getJdbcType()) {
+            case Types.CLOB:
+                return Optional.of(varcharColumnMapping(createUnboundedVarcharType()));
+            case Types.BLOB:
+                return Optional.of(varbinaryColumnMapping());
+        }
+        return super.toPrestoType(session, typeHandle);
     }
 
     @Override
