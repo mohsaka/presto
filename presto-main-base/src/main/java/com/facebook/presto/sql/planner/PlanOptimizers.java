@@ -748,7 +748,8 @@ public class PlanOptimizers
                 ruleStats,
                 statsCalculator,
                 estimatedExchangesCostCalculator,
-                new GroupInnerJoinsByConnectorRuleSet(metadata, predicatePushDown).rules()));
+                new GroupInnerJoinsByConnectorRuleSet(metadata, predicatePushDown).rules()),
+                predicatePushDown);
 
         // Pass a supplier so that we pickup connector optimizers that are installed later
         builder.add(

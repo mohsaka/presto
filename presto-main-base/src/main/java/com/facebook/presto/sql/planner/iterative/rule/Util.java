@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.sql.planner.iterative.rule;
 
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.plan.LogicalProperties;
 import com.facebook.presto.spi.plan.Ordering;
 import com.facebook.presto.spi.plan.OrderingScheme;
@@ -29,9 +30,12 @@ import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
 import static com.facebook.presto.sql.planner.plan.AssignmentUtils.identityAssignments;
@@ -39,7 +43,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-class Util
+public class Util
 {
     private Util()
     {
@@ -154,5 +158,25 @@ class Util
             }
         }
         return 0;
+    }
+
+    public static Map<ColumnHandle, VariableReferenceExpression> invertAssignments(Map<VariableReferenceExpression, ColumnHandle> assignments)
+    {
+        if ((new HashSet<>(assignments.values())).size() == assignments.size()) {
+            // We build a regular inverted Map where we use ColumnHandle#equals for Map keys
+            return assignments.entrySet().stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
+        }
+
+        // Because a join-pushed-down TableScanNode can refer to Column handles that are identical
+        // We break the default assumption in the planner that a TableScanNode refers to a single Table, in which
+        // all ColumnHandles in the assignments are also unique
+        // To work around this, we add this !!!HACK!!! where we instead use an IdentityHashMap which uses reference equality for the Map keys
+        // TODO : 1/ Fix the GroupInnerJoinsByConnector so that we build a new kind of TableScanNode that represents a JoinTableSet and their assignments cleanly
+        // TODO : And 2/ Formalize the assumption that a TableScanNode#Assignments is actually a BiMap (or is never a BiMap)
+        Map<ColumnHandle, VariableReferenceExpression> inverseIdentityMap = new IdentityHashMap<>();
+        for (Map.Entry<VariableReferenceExpression, ColumnHandle> entry : assignments.entrySet()) {
+            inverseIdentityMap.put(entry.getValue(), entry.getKey());
+        }
+        return inverseIdentityMap;
     }
 }
