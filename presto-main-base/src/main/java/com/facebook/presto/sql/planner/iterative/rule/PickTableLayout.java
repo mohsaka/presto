@@ -42,7 +42,6 @@ import com.facebook.presto.sql.planner.iterative.Rule;
 import com.facebook.presto.sql.relational.FunctionResolution;
 import com.facebook.presto.sql.relational.RowExpressionDeterminismEvaluator;
 import com.facebook.presto.sql.relational.RowExpressionDomainTranslator;
-import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -61,6 +60,7 @@ import static com.facebook.presto.spi.relation.DomainTranslator.BASIC_COLUMN_EXT
 import static com.facebook.presto.spi.relation.ExpressionOptimizer.Level.OPTIMIZED;
 import static com.facebook.presto.sql.planner.PlannerUtils.containsSystemTableScan;
 import static com.facebook.presto.sql.planner.iterative.rule.PreconditionRules.checkRulesAreFiredBeforeAddExchangesRule;
+import static com.facebook.presto.sql.planner.iterative.rule.Util.invertAssignments;
 import static com.facebook.presto.sql.planner.plan.Patterns.filter;
 import static com.facebook.presto.sql.planner.plan.Patterns.source;
 import static com.facebook.presto.sql.planner.plan.Patterns.tableScan;
@@ -292,7 +292,7 @@ public class PickTableLayout
                 .transform(variableName -> node.getAssignments().get(variableName))
                 .intersect(node.getEnforcedConstraint());
 
-        Map<ColumnHandle, VariableReferenceExpression> assignments = ImmutableBiMap.copyOf(node.getAssignments()).inverse();
+        Map<ColumnHandle, VariableReferenceExpression> assignments = invertAssignments(node.getAssignments());
 
         Constraint<ColumnHandle> constraint;
         if (pruneWithPredicateExpression) {
