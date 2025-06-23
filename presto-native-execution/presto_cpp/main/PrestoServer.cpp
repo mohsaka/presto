@@ -1206,15 +1206,17 @@ std::vector<std::string> PrestoServer::registerVeloxConnectors(
   for (const auto& entry :
        fs::directory_iterator(configDirectoryPath / "catalog")) {
     if (entry.path().extension() == kPropertiesExtension) {
-      catalogNames.emplace_back(registerCatalog(entry));
+      catalogNames.emplace_back(registerCatalog(entry, true));
     }
   }
   return catalogNames;
 }
 
 std::string PrestoServer::registerCatalog(
-  const fs::path& configPath) {
+  const fs::path& configPath,
+  const bool startup) {
     static const std::string kPropertiesExtension = ".properties";
+    auto& logger = startup ? PRESTO_STARTUP_LOG(INFO) : LOG(INFO);
 
     std::string catalogName;
     const std::filesystem::directory_entry entry(configPath);
@@ -1224,9 +1226,8 @@ std::string PrestoServer::registerCatalog(
           fileName.substr(0, fileName.size() - kPropertiesExtension.size());
 
       auto connectorConf = util::readConfig(entry.path());
-      PRESTO_STARTUP_LOG(INFO)
-          << "Registered catalog property keys from " << entry.path() << ":\n"
-          << logConnectorConfigPropertyKeys(connectorConf);
+      logger << "Registered catalog property keys from " << entry.path() << ":\n"
+             << logConnectorConfigPropertyKeys(connectorConf);
 
       std::shared_ptr<const velox::config::ConfigBase> properties =
           std::make_shared<const velox::config::ConfigBase>(
@@ -1234,8 +1235,9 @@ std::string PrestoServer::registerCatalog(
 
       auto connectorName = util::requiredProperty(*properties, kConnectorName);
 
-      PRESTO_STARTUP_LOG(INFO) << "Registering catalog " << catalogName
-                               << " using connector " << connectorName;
+
+      logger << "Registering catalog " << catalogName
+             << " using connector " << connectorName;
 
       // make sure connector type is supported
       getPrestoToVeloxConnector(connectorName);
@@ -1671,7 +1673,7 @@ void PrestoServer::registerCatalogFromJson(
     out << propertiesString.str();
     out.close();
 
-    registerCatalog(propertyFile);
+    registerCatalog(propertyFile, false);
     catalogNames.push_back(catalogName);
 
     // Update and force an announcement to let the coordinator know about the new catalog

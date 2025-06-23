@@ -134,7 +134,8 @@ class PrestoServer {
       const fs::path& configDirectoryPath);
 
   virtual std::string registerCatalog(
-      const fs::path& configPath);
+      const fs::path& configPath,
+      const bool startup);
 
   /// Invoked to register the required dwio data sinks which are used by
   /// connectors.
