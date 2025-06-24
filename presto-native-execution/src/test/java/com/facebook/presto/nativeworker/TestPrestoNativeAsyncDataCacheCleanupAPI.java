@@ -177,22 +177,6 @@ public class TestPrestoNativeAsyncDataCacheCleanupAPI
         }
     }
 
-    private boolean isCoordinator(DistributedQueryRunner distributedQueryRunner, InternalNode node)
-    {
-        return distributedQueryRunner.getCoordinator().getNodeManager().getCoordinators().contains(node);
-    }
-
-    private Set<InternalNode> getWorkerNodes(DistributedQueryRunner queryRunner)
-    {
-        return queryRunner.getCoordinator()
-                .getNodeManager()
-                .getAllNodes()
-                .getActiveNodes()
-                .stream()
-                .filter(node -> !isCoordinator(queryRunner, node))
-                .collect(Collectors.toSet());
-    }
-
     @Test(groups = {"async_data_cache"}, enabled = false)
     public void testAsyncDataCacheCleanupApiFormat()
     {

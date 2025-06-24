@@ -19,11 +19,13 @@ import com.facebook.presto.tests.DistributedQueryRunner;
 import org.testng.annotations.Test;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -43,27 +45,36 @@ public class TestPrestoNativeDynamicCatalog
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
 
-            // Create JSON payload
+            // Create JSON payload.
             String jsonPayload = "{"
                     + "\"connector.name\": \"hive\""
                     + "}";
 
-            // Send JSON body
+            // Send JSON body.
             try (OutputStream os = connection.getOutputStream()) {
-                byte[] input = jsonPayload.getBytes("utf-8");
+                byte[] input = jsonPayload.getBytes(StandardCharsets.UTF_8);
                 os.write(input, 0, input.length);
             }
 
-            // Read and validate response
+            // Read and validate response.
             int responseCode = connection.getResponseCode();
-            assertEquals(responseCode, 200);
+            System.out.println(connection.getResponseMessage());
+            InputStream stream = (responseCode >= 200 && responseCode < 300)
+                    ? connection.getInputStream()
+                    : connection.getErrorStream();
 
-            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(stream))) {
                 String inputLine;
                 StringBuilder response = new StringBuilder();
                 while ((inputLine = in.readLine()) != null) {
                     response.append(inputLine);
                 }
+                System.out.println("Response Body: " + response);
+
+                if (responseCode != 200) {
+                    throw new RuntimeException("Request failed: " + responseCode + " " + response);
+                }
+
                 assertEquals(response.toString(), "Registered catalog: " + catalogName);
             }
         }

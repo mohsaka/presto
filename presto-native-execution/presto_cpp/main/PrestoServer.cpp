@@ -278,7 +278,7 @@ void PrestoServer::run() {
   initializeVeloxMemory();
   initializeThreadPools();
 
-  auto catalogNames = registerVeloxConnectors(fs::path(configDirectoryPath_));
+  registerVeloxConnectors(fs::path(configDirectoryPath_));
 
   const bool bindToNodeInternalAddressOnly =
       systemConfig->httpServerBindToNodeInternalAddressOnlyEnabled();
@@ -385,6 +385,14 @@ void PrestoServer::run() {
           });
     }
   }
+  httpServer_->registerPost(
+      R"(/v1/catalog/([^/]+))",
+      [server = this](
+          proxygen::HTTPMessage* message,
+          const std::vector<std::unique_ptr<folly::IOBuf>>& body,
+          proxygen::ResponseHandler* downstream) {
+        server->registerCatalogFromJson(message, body, downstream);
+      });
   registerVeloxCudf();
   registerFunctions();
   registerRemoteFunctions();
@@ -561,16 +569,6 @@ void PrestoServer::run() {
     taskManager_->setBaseUri(taskUri);
   };
 
-  httpServer_->registerPost(
-      R"(/v1/catalog/([^/]+))",
-      [server = this, &catalogNames](
-          proxygen::HTTPMessage* message,
-          const std::vector<std::unique_ptr<folly::IOBuf>>& body,
-          proxygen::ResponseHandler* downstream) {
-        LOG(INFO) << "Received catalog POST";
-        server->registerCatalogFromJson(message, body, downstream, catalogNames);
-      });
-
   auto startAnnouncerAndHeartbeatManagerCb = [&](bool useHttps, int port) {
     if (coordinatorDiscoverer_ != nullptr) {
       announcer_ = std::make_unique<Announcer>(
@@ -584,7 +582,7 @@ void PrestoServer::run() {
           nodeLocation_,
           nodePoolType_,
           systemConfig->prestoNativeSidecar(),
-          catalogNames,
+          catalogNames_,
           systemConfig->announcementMaxFrequencyMs(),
           sslContext_);
       updateAnnouncerDetails();
@@ -1170,7 +1168,7 @@ PrestoServer::getHttpServerFilters() const {
   return filters;
 }
 
-std::vector<std::string> PrestoServer::registerVeloxConnectors(
+void PrestoServer::registerVeloxConnectors(
     const fs::path& configDirectoryPath) {
   static const std::string kPropertiesExtension = ".properties";
 
@@ -1202,32 +1200,17 @@ std::vector<std::string> PrestoServer::registerVeloxConnectors(
         << " threads.";
   }
 
-  std::vector<std::string> catalogNames;
   for (const auto& entry :
        fs::directory_iterator(configDirectoryPath / "catalog")) {
     if (entry.path().extension() == kPropertiesExtension) {
-      catalogNames.emplace_back(registerCatalog(entry, true));
-    }
-  }
-  return catalogNames;
-}
-
-std::string PrestoServer::registerCatalog(
-  const fs::path& configPath,
-  const bool startup) {
-    static const std::string kPropertiesExtension = ".properties";
-    auto& logger = startup ? PRESTO_STARTUP_LOG(INFO) : LOG(INFO);
-
-    std::string catalogName;
-    const std::filesystem::directory_entry entry(configPath);
-    if (entry.path().extension() == kPropertiesExtension) {
       auto fileName = entry.path().filename().string();
-      catalogName =
+      auto catalogName =
           fileName.substr(0, fileName.size() - kPropertiesExtension.size());
 
       auto connectorConf = util::readConfig(entry.path());
-      logger << "Registered catalog property keys from " << entry.path() << ":\n"
-             << logConnectorConfigPropertyKeys(connectorConf);
+      PRESTO_STARTUP_LOG(INFO)
+          << "Registered catalog property keys from " << entry.path() << ":\n"
+          << logConnectorConfigPropertyKeys(connectorConf);
 
       std::shared_ptr<const velox::config::ConfigBase> properties =
           std::make_shared<const velox::config::ConfigBase>(
@@ -1235,9 +1218,10 @@ std::string PrestoServer::registerCatalog(
 
       auto connectorName = util::requiredProperty(*properties, kConnectorName);
 
+      catalogNames_.emplace_back(catalogName);
 
-      logger << "Registering catalog " << catalogName
-             << " using connector " << connectorName;
+      PRESTO_STARTUP_LOG(INFO) << "Registering catalog " << catalogName
+                               << " using connector " << connectorName;
 
       // make sure connector type is supported
       getPrestoToVeloxConnector(connectorName);
@@ -1251,7 +1235,7 @@ std::string PrestoServer::registerCatalog(
                   connectorCpuExecutor_.get());
       velox::connector::registerConnector(connector);
     }
-    return catalogName;
+  }
 }
 
 void PrestoServer::registerSystemConnector() {
@@ -1624,10 +1608,9 @@ void PrestoServer::handleGracefulShutdown(
 }
 
 void PrestoServer::registerCatalogFromJson(
-    proxygen::HTTPMessage* message,
+    const proxygen::HTTPMessage* message,
     const std::vector<std::unique_ptr<folly::IOBuf>>& body,
-    proxygen::ResponseHandler* downstream,
-    std::vector<std::string>& catalogNames) {
+    proxygen::ResponseHandler* downstream) {
 
   static const std::string kPropertiesExtension = ".properties";
 
@@ -1636,48 +1619,75 @@ void PrestoServer::registerCatalogFromJson(
     const auto lastSlash = path.find_last_of('/');
     const std::string catalogName = path.substr(lastSlash + 1);
 
-    if(find(catalogNames.begin(), catalogNames.end(), catalogName) != catalogNames.end()) {
-      throw std::invalid_argument(fmt::format("Catalog ['{}'] is already present in Prestissimo", catalogName));
-    }
-
+    VELOX_USER_CHECK(find(catalogNames_.begin(), catalogNames_.end(), catalogName) == catalogNames_.end(),
+                     fmt::format("Catalog ['{}'] is already present.", catalogName));
+    
     std::string jsonBody;
     for (const auto& buf : body) {
       jsonBody += std::string(reinterpret_cast<const char*>(buf->data()), buf->length());
     }
 
     folly::dynamic json = folly::parseJson(jsonBody);
-    if (!json.isObject()) {
-      throw std::invalid_argument("Not a JSON object.");
-    }
+    VELOX_USER_CHECK(json.isObject(), "Not a JSON object.");
 
     std::ostringstream propertiesString;
+    std::unordered_map<std::string, std::string>  connectorConf;
+
     for (const auto& pair : json.items()) {
-      if (!pair.first.isString()) {
-        throw std::invalid_argument("All JSON keys must be strings.");
-      }
-      if (!pair.second.isString()) {
-        throw std::invalid_argument(
-            fmt::format("Value for key '{}' must be a string, but got: {}",
-                        pair.first.asString(),
-                        folly::toJson(pair.second)));
-      }
+      VELOX_USER_CHECK(pair.first.isString(), "All JSON keys must be strings.");
+      VELOX_USER_CHECK(pair.second.isString(), fmt::format("Value for key '{}' must be a string, but got: {}",
+                                                 pair.first.asString(), 
+                                                 folly::toJson(pair.second)));
       propertiesString << pair.first.asString() << "=" << pair.second.asString() << "\n";
+
+      // Fill in the mapping for in-memory catalog creation
+      auto value = pair.second.asString();
+      util::extractValueIfEnvironmentVariable(value);
+      connectorConf.emplace(pair.first.asString(), value);
     }
 
-    const fs::path propertyFile = configDirectoryPath_ + "/catalog/" + catalogName + kPropertiesExtension;
+    LOG(INFO)
+        << "Registered catalog property keys from in-memory JSON for catalog '"
+        << catalogName << "':\n"
+        << logConnectorConfigPropertyKeys(connectorConf);
 
-    std::ofstream out(propertyFile);
-    if (!out.is_open()) {
-      throw std::runtime_error("Failed to open file: " + propertyFile.string());
+    std::shared_ptr<const velox::config::ConfigBase> properties =
+        std::make_shared<const velox::config::ConfigBase>(
+            std::move(connectorConf));
+
+    auto connectorName = util::requiredProperty(*properties, kConnectorName);
+
+    catalogNames_.emplace_back(catalogName);
+
+    LOG(INFO) << "Registering catalog " << catalogName
+              << " using connector " << connectorName;
+
+    // make sure connector type is supported
+    getPrestoToVeloxConnector(connectorName);
+
+    std::shared_ptr<velox::connector::Connector> connector =
+        velox::connector::getConnectorFactory(connectorName)
+            ->newConnector(
+                catalogName,
+                std::move(properties),
+                connectorIoExecutor_.get(),
+                connectorCpuExecutor_.get());
+    velox::connector::registerConnector(connector);
+
+    // Attempt to persist the catalog. If we cannot persist it, the catalog will
+    // be in memory only.
+    const fs::path propertyFile = configDirectoryPath_ + "/catalog/" +
+        catalogName + kPropertiesExtension;
+    try {
+      std::ofstream out(propertyFile);
+      out << propertiesString.str();
+      out.close();
+    } catch (const std::exception& ex) {
+      LOG(WARNING) << "Unable to write to file " << propertyFile << ". Catalog will be in memory only. ";
     }
-    out << propertiesString.str();
-    out.close();
 
-    registerCatalog(propertyFile, false);
-    catalogNames.push_back(catalogName);
-
-    // Update and force an announcement to let the coordinator know about the new catalog
-    announcer_->updateConnectorIds(catalogNames);
+    // Update and force an announcement to let the coordinator know about the new catalog.
+    announcer_->updateConnectorIds(catalogNames_);
     announcer_->sendRequest();
 
     proxygen::ResponseBuilder(downstream)
