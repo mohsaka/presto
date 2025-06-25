@@ -1678,13 +1678,8 @@ void PrestoServer::registerCatalogFromJson(
     // be in memory only.
     const fs::path propertyFile = configDirectoryPath_ + "/catalog/" +
         catalogName + kPropertiesExtension;
-    try {
-      std::ofstream out(propertyFile);
-      out << propertiesString.str();
-      out.close();
-    } catch (const std::exception& ex) {
-      LOG(WARNING) << "Unable to write to file " << propertyFile << ". Catalog will be in memory only. ";
-    }
+
+    writeConfigToFile(propertyFile, propertiesString.str());
 
     // Update and force an announcement to let the coordinator know about the new catalog.
     announcer_->updateConnectorIds(catalogNames_);
@@ -1699,6 +1694,37 @@ void PrestoServer::registerCatalogFromJson(
         .status(400, "Bad Request")
         .body(std::string("Catalog registration failed: ") + ex.what())
         .sendWithEOM();
+  }
+}
+
+void PrestoServer::writeConfigToFile(const fs::path propertyFile, const std::string propertiesString) {
+  std::ofstream out(propertyFile);
+  if(!out.is_open()){
+    LOG(WARNING) << "Unable to open file " << propertyFile << ". Catalog will be in memory only.";
+    return;
+  }
+
+  out << propertiesString;
+  if(out.fail()){
+    LOG(WARNING) << "Unable to write to file " << propertyFile << ". Catalog will be in memory only.";
+    removePropertyFile(propertyFile);
+    return;
+  }
+
+  out.close();
+  if(out.fail() || out.bad()){
+    LOG(WARNING) << "Unable to close file " << propertyFile << ". Catalog will be in memory only.";
+    removePropertyFile(propertyFile);
+  }
+}
+
+void PrestoServer::removePropertyFile(const fs::path& propertyFile) {
+  std::error_code ec;
+  if (std::filesystem::remove(propertyFile, ec)) {
+    LOG(INFO) << "Removed file " << propertyFile;
+  } else {
+    LOG(WARNING) << "Failed to remove file " << propertyFile
+                 << ". Error: " << ec.message();
   }
 }
 

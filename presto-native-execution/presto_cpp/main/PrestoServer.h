@@ -213,6 +213,9 @@ class PrestoServer {
       const std::vector<std::unique_ptr<folly::IOBuf>>& body,
       proxygen::ResponseHandler* downstream);
 
+  void writeConfigToFile(const fs::path propertyFile, const std::string config);
+  void removePropertyFile(const fs::path& propertyFile);
+
   protocol::NodeStatus fetchNodeStatus();
 
   void populateMemAndCPUInfo();
