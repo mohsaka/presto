@@ -23,6 +23,8 @@ class ConfigBase;
 
 namespace facebook::presto::util {
 
+void extractValueIfEnvironmentVariable(std::string& value);
+
 std::unordered_map<std::string, std::string> readConfig(
     const std::string& filePath);
 

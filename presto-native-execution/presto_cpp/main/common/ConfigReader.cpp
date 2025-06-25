@@ -20,7 +20,6 @@
 
 namespace facebook::presto::util {
 
-namespace {
 // Replaces strings of the form "${VAR}"
 // with the value of the environment variable "VAR" (if it exists).
 // Does nothing if the input doesn't look like "${...}".
@@ -38,7 +37,6 @@ void extractValueIfEnvironmentVariable(std::string& value) {
     }
   }
 }
-} // namespace
 
 std::unordered_map<std::string, std::string> readConfig(
     const std::string& filePath) {

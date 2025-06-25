@@ -277,7 +277,7 @@ void PrestoServer::run() {
   initializeVeloxMemory();
   initializeThreadPools();
 
-  auto catalogNames = registerVeloxConnectors(fs::path(configDirectoryPath_));
+  registerVeloxConnectors(fs::path(configDirectoryPath_));
 
   const bool bindToNodeInternalAddressOnly =
       systemConfig->httpServerBindToNodeInternalAddressOnlyEnabled();
@@ -384,6 +384,14 @@ void PrestoServer::run() {
           });
     }
   }
+  httpServer_->registerPost(
+      R"(/v1/catalog/([^/]+))",
+      [server = this](
+          proxygen::HTTPMessage* message,
+          const std::vector<std::unique_ptr<folly::IOBuf>>& body,
+          proxygen::ResponseHandler* downstream) {
+        server->registerCatalogFromJson(message, body, downstream);
+      });
   registerVeloxCudf();
   registerFunctions();
   registerRemoteFunctions();
@@ -573,7 +581,7 @@ void PrestoServer::run() {
           nodeLocation_,
           nodePoolType_,
           systemConfig->prestoNativeSidecar(),
-          catalogNames,
+          catalogNames_,
           systemConfig->announcementMaxFrequencyMs(),
           sslContext_);
       updateAnnouncerDetails();
@@ -1159,7 +1167,7 @@ PrestoServer::getHttpServerFilters() const {
   return filters;
 }
 
-std::vector<std::string> PrestoServer::registerVeloxConnectors(
+void PrestoServer::registerVeloxConnectors(
     const fs::path& configDirectoryPath) {
   static const std::string kPropertiesExtension = ".properties";
 
@@ -1191,7 +1199,6 @@ std::vector<std::string> PrestoServer::registerVeloxConnectors(
         << " threads.";
   }
 
-  std::vector<std::string> catalogNames;
   for (const auto& entry :
        fs::directory_iterator(configDirectoryPath / "catalog")) {
     if (entry.path().extension() == kPropertiesExtension) {
@@ -1203,32 +1210,9 @@ std::vector<std::string> PrestoServer::registerVeloxConnectors(
       PRESTO_STARTUP_LOG(INFO)
           << "Registered catalog property keys from " << entry.path() << ":\n"
           << logConnectorConfigPropertyKeys(connectorConf);
-
-      std::shared_ptr<const velox::config::ConfigBase> properties =
-          std::make_shared<const velox::config::ConfigBase>(
-              std::move(connectorConf));
-
-      auto connectorName = util::requiredProperty(*properties, kConnectorName);
-
-      catalogNames.emplace_back(catalogName);
-
-      PRESTO_STARTUP_LOG(INFO) << "Registering catalog " << catalogName
-                               << " using connector " << connectorName;
-
-      // make sure connector type is supported
-      getPrestoToVeloxConnector(connectorName);
-
-      std::shared_ptr<velox::connector::Connector> connector =
-          velox::connector::getConnectorFactory(connectorName)
-              ->newConnector(
-                  catalogName,
-                  std::move(properties),
-                  connectorIoExecutor_.get(),
-                  connectorCpuExecutor_.get());
-      velox::connector::registerConnector(connector);
+      registerCatalog(catalogName, std::move(connectorConf));
     }
   }
-  return catalogNames;
 }
 
 void PrestoServer::registerSystemConnector() {
@@ -1598,6 +1582,135 @@ void PrestoServer::handleGracefulShutdown(
   } else {
     LOG(ERROR) << "Bad Request. Received body content: " << bodyContent;
     http::sendErrorResponse(downstream, "Bad Request", http::kHttpBadRequest);
+  }
+}
+
+void PrestoServer::registerCatalogFromJson(
+    const proxygen::HTTPMessage* message,
+    const std::vector<std::unique_ptr<folly::IOBuf>>& body,
+    proxygen::ResponseHandler* downstream) {
+
+  static const std::string kPropertiesExtension = ".properties";
+
+  try {
+    const auto path = message->getPath();
+    const auto lastSlash = path.find_last_of('/');
+    const std::string catalogName = path.substr(lastSlash + 1);
+
+    VELOX_USER_CHECK(find(catalogNames_.begin(), catalogNames_.end(), catalogName) == catalogNames_.end(),
+                     fmt::format("Catalog ['{}'] is already present.", catalogName));
+    
+    std::string jsonBody;
+    for (const auto& buf : body) {
+      jsonBody += std::string(reinterpret_cast<const char*>(buf->data()), buf->length());
+    }
+
+    folly::dynamic json = folly::parseJson(jsonBody);
+    VELOX_USER_CHECK(json.isObject(), "Not a JSON object.");
+
+    std::ostringstream propertiesString;
+    std::unordered_map<std::string, std::string> connectorConf;
+
+    for (const auto& pair : json.items()) {
+      VELOX_USER_CHECK(pair.first.isString(), "All JSON keys must be strings.");
+      VELOX_USER_CHECK(pair.second.isString(), fmt::format("Value for key '{}' must be a string, but got: {}",
+                                                 pair.first.asString(), 
+                                                 folly::toJson(pair.second)));
+      propertiesString << pair.first.asString() << "=" << pair.second.asString() << "\n";
+
+      // Fill in the mapping for in-memory catalog creation
+      auto value = pair.second.asString();
+      util::extractValueIfEnvironmentVariable(value);
+      connectorConf.emplace(pair.first.asString(), value);
+    }
+
+    LOG(INFO)
+        << "Registered catalog property keys from in-memory JSON for catalog '"
+        << catalogName << "':\n"
+        << logConnectorConfigPropertyKeys(connectorConf);
+
+    registerCatalog(catalogName, std::move(connectorConf));
+
+    // Attempt to persist the catalog. If we cannot persist it, the catalog will
+    // be in memory only.
+    const fs::path propertyFile = configDirectoryPath_ + "/catalog/" +
+        catalogName + kPropertiesExtension;
+
+    writeConfigToFile(propertyFile, propertiesString.str());
+
+    // Update and force an announcement to let the coordinator know about the new catalog.
+    announcer_->updateConnectorIds(catalogNames_);
+    announcer_->sendRequest();
+
+    proxygen::ResponseBuilder(downstream)
+        .status(http::kHttpOk, "OK")
+        .body("Registered catalog: " + catalogName)
+        .sendWithEOM();
+  } catch (const std::exception& ex) {
+    proxygen::ResponseBuilder(downstream)
+        .status(http::kHttpBadRequest, "Bad Request")
+        .body(std::string("Catalog registration failed: ") + ex.what())
+        .sendWithEOM();
+  }
+}
+
+void PrestoServer::registerCatalog(const std::string& catalogName,
+                                   std::unordered_map<std::string, std::string>  connectorConf) {
+  std::shared_ptr<const velox::config::ConfigBase> properties =
+      std::make_shared<const velox::config::ConfigBase>(
+          std::move(connectorConf));
+
+  auto connectorName = util::requiredProperty(*properties, kConnectorName);
+
+  catalogNames_.emplace_back(catalogName);
+
+  LOG(INFO) << "Registering catalog " << catalogName
+            << " using connector " << connectorName;
+
+  // make sure connector type is supported
+  getPrestoToVeloxConnector(connectorName);
+
+  std::shared_ptr<velox::connector::Connector> connector =
+      velox::connector::getConnectorFactory(connectorName)
+          ->newConnector(
+              catalogName,
+              std::move(properties),
+              connectorIoExecutor_.get(),
+              connectorCpuExecutor_.get());
+  velox::connector::registerConnector(connector);
+}
+
+void PrestoServer::writeConfigToFile(const fs::path& propertyFile, const std::string& config) {
+  std::ofstream out(propertyFile);
+  if(!out.is_open()){
+    LOG(WARNING) << "Unable to open file " << propertyFile << ". Catalog will be in memory only.";
+    return;
+  }
+
+  out << config;
+  if(out.fail()){
+    LOG(WARNING) << "Unable to write to file " << propertyFile << ". Catalog will be in memory only.";
+    removePropertyFile(propertyFile);
+    return;
+  }
+
+  out.close();
+
+  // If something goes wrong while closing, for example, buffer flush fails or disk is full,
+  // attempt to clean up the file.
+  if(out.fail() || out.bad()){
+    LOG(WARNING) << "Unable to close file " << propertyFile << ". Catalog will be in memory only.";
+    removePropertyFile(propertyFile);
+  }
+}
+
+void PrestoServer::removePropertyFile(const fs::path& propertyFile) {
+  std::error_code ec;
+  if (std::filesystem::remove(propertyFile, ec)) {
+    LOG(INFO) << "Removed file " << propertyFile;
+  } else {
+    LOG(WARNING) << "Failed to remove file " << propertyFile
+                 << ". Error: " << ec.message();
   }
 }
 
