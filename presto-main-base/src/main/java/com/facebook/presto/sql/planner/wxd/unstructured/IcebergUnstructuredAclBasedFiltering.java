@@ -50,12 +50,14 @@ import java.util.Set;
 
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
+import static com.facebook.presto.spi.ConnectorId.isInternalSystemConnector;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.IN;
 import static java.util.Objects.requireNonNull;
 
 public class IcebergUnstructuredAclBasedFiltering
         implements PlanOptimizer
 {
+    private static final Logger log = Logger.get(IcebergUnstructuredAclBasedFiltering.class);
     private static final String DOCUMENT_ID_COLUMN_NAME = "document_id";
     private final Metadata metadata;
     private final CPGClient cpgClient;
@@ -69,11 +71,33 @@ public class IcebergUnstructuredAclBasedFiltering
     @Override
     public PlanOptimizerResult optimize(PlanNode plan, Session session, TypeProvider types, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
-        Rewriter rewriter = new Rewriter(session, idAllocator, variableAllocator, metadata, cpgClient);
-        PlanNode rewrittenNode = SimplePlanRewriter.rewriteWith(rewriter, plan);
-        return PlanOptimizerResult.optimizerResult(rewrittenNode, rewriter.isPlanChanged());
+        if (isEnabled(session)) {
+            Rewriter rewriter = new Rewriter(session, idAllocator, variableAllocator, metadata, cpgClient);
+            PlanNode rewrittenNode = SimplePlanRewriter.rewriteWith(rewriter, plan);
+            return PlanOptimizerResult.optimizerResult(rewrittenNode, rewriter.isPlanChanged());
+        }
+        return PlanOptimizerResult.optimizerResult(plan, false);
     }
 
+    @Override
+    public boolean isEnabled(Session session)
+    {
+        String token = session.toConnectorSession()
+                .getIdentity()
+                .getExtraCredentials()
+                .get("token");
+
+        if (token == null) {
+            log.debug("Skipping Acl Based Filtering: Bearer token not found.");
+            return false;
+        }
+
+        if ("prestoadm".equalsIgnoreCase(session.getUser())) {
+            log.debug("Skipping Acl Based Filtering: User is %s", session.getUser());
+            return false;
+        }
+        return true;
+    }
     private static class Rewriter
             extends SimplePlanRewriter<Void>
     {
@@ -107,12 +131,12 @@ public class IcebergUnstructuredAclBasedFiltering
         @Override
         public PlanNode visitTableScan(TableScanNode tableScanNode, RewriteContext<Void> context)
         {
-            if (session.toConnectorSession().getIdentity().getExtraCredentials().get("token") == null) {
-                log.info("bearer token not found or the unstructured flag is true");
+            TableHandle tableHandle = tableScanNode.getTable();
+            if (isInternalSystemConnector(tableHandle.getConnectorId())) {
+                log.debug("Query to internal system connector [%s], skipping rewrite", tableHandle.getConnectorId());
                 return tableScanNode;
             }
             String bearerToken = session.toConnectorSession().getIdentity().getExtraCredentials().get("token");
-            TableHandle tableHandle = tableScanNode.getTable();
             ColumnHandle docIdColumnHandle = metadata.getColumnHandles(session, tableHandle).get(DOCUMENT_ID_COLUMN_NAME);
             String catalog = tableHandle.getConnectorId().getCatalogName();
             SchemaTableName tableName = metadata.getTableMetadata(session, tableHandle).getTable();
@@ -196,7 +220,7 @@ public class IcebergUnstructuredAclBasedFiltering
 
             Set<String> groupSet = new HashSet<>();
             groupSet.add(session.getUser());
-            groupSet.add("__ALL_WXD_USERS");
+            groupSet.add("__all_wxd_users");
             try {
                 Set<String> cpgGroupList = cpgClient.getGroupDetails(bearerToken);
                 if (cpgGroupList != null) {
