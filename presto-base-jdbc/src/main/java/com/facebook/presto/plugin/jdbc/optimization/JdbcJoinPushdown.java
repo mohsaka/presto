@@ -91,7 +91,8 @@ public class JdbcJoinPushdown
             TableHandle tableHandle = node.getTable();
             if (tableHandle.getConnectorHandle() instanceof JoinTableSet) {
                 JoinTableSet tableHandles = (JoinTableSet) tableHandle.getConnectorHandle();
-                ImmutableList<JoinTableInfo> newJoinTableInfos = ImmutableList.copyOf(tableHandles.getInnerJoinTableInfos());
+                ImmutableList.Builder<JoinTableInfo> joinTableInfoBuilder = ImmutableList.builder();
+                generateAllJoinTableInfos(tableHandles, joinTableInfoBuilder);
 
                 ImmutableList.Builder<ConnectorTableHandle> newConnectorTableHandlesBuilder = ImmutableList.builder();
                 Map<VariableReferenceExpression, ColumnHandle> groupAssignments = new HashMap<>();
@@ -102,7 +103,7 @@ public class JdbcJoinPushdown
                 int aliasTableCounter = 0;
 
                 // Create new table handles and update column handles
-                for (JoinTableInfo tableMapping : newJoinTableInfos) {
+                for (JoinTableInfo tableMapping : joinTableInfoBuilder.build()) {
                     JdbcTableHandle handle = (JdbcTableHandle) tableMapping.getTableHandle();
                     JdbcTableHandle newHandle = new JdbcTableHandle(handle.getConnectorId(), handle.getSchemaTableName(), handle.getCatalogName(),
                             handle.getSchemaName(), handle.getTableName(), handle.getJoinTables(), Optional.of(aliasPrefix + (++aliasTableCounter)));
@@ -130,6 +131,25 @@ public class JdbcJoinPushdown
                 return new TableScanNode(node.getSourceLocation(), node.getId(), newTableHandle, node.getOutputVariables(), groupAssignments, node.getCurrentConstraint(), node.getEnforcedConstraint(), node.getCteMaterializationInfo());
             }
             return node;
+        }
+
+        /**
+         * Recursively build all join table infos from a JoinTableSet
+         *
+         * @param tableHandles
+         * @param joinTableInfoBuilder
+         * @return
+         */
+        private void generateAllJoinTableInfos(JoinTableSet tableHandles, ImmutableList.Builder<JoinTableInfo> joinTableInfoBuilder)
+        {
+            for (JoinTableInfo innerJoinTableInfo : tableHandles.getInnerJoinTableInfos()) {
+                if (innerJoinTableInfo.getTableHandle() instanceof JoinTableSet) {
+                    generateAllJoinTableInfos((JoinTableSet) innerJoinTableInfo.getTableHandle(), joinTableInfoBuilder);
+                }
+                else {
+                    joinTableInfoBuilder.add(innerJoinTableInfo);
+                }
+            }
         }
     }
 }
