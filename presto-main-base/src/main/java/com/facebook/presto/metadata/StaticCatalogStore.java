@@ -19,7 +19,6 @@ import com.facebook.presto.spi.ConnectorId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.io.Files;
 import jakarta.inject.Inject;
 
 import java.io.File;
@@ -32,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static com.facebook.presto.util.PropertiesUtil.loadProperties;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.io.Files.getNameWithoutExtension;
 
 public class StaticCatalogStore
 {
@@ -77,7 +77,12 @@ public class StaticCatalogStore
 
         for (File file : listFiles(catalogConfigurationDir)) {
             if (file.isFile() && file.getName().endsWith(".properties")) {
-                loadCatalog(file);
+                try {
+                    loadCatalog(file);
+                }
+                catch (Exception e) {
+                    log.error(e, "Failed to load catalog '%s' from file %s: %s", getNameWithoutExtension(file.getName()), file.getName(), e.getMessage());
+                }
             }
         }
 
@@ -122,7 +127,7 @@ public class StaticCatalogStore
     private void loadCatalog(File file)
             throws Exception
     {
-        String catalogName = Files.getNameWithoutExtension(file.getName());
+        String catalogName = getNameWithoutExtension(file.getName());
 
         log.info("-- Loading catalog properties %s --", file);
         Map<String, String> properties = loadProperties(file);
