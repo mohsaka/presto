@@ -121,6 +121,7 @@ import static com.facebook.presto.common.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.common.type.Varchars.isVarcharType;
 import static com.facebook.presto.hive.HiveBasicStatistics.createEmptyStatistics;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
+import static com.facebook.presto.hive.MetastoreClientConfig.HiveMetastoreAuthenticationType.KERBEROS;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
 import static com.facebook.presto.hive.metastore.MetastoreOperationResult.EMPTY_RESULT;
@@ -180,7 +181,7 @@ public class ThriftHiveMetastore
     private final Function<Exception, Exception> exceptionMapper;
     private final HdfsEnvironment hdfsEnvironment;
     private final boolean impersonationEnabled;
-    private final boolean isMetastoreAuthenticationEnabled;
+    private final HiveMetastoreAuthenticationType hiveMetastoreAuthenticationType;
     private final boolean deleteFilesOnTableDrop;
 
     private volatile boolean metastoreKnownToSupportTableParamEqualsPredicate;
@@ -196,7 +197,7 @@ public class ThriftHiveMetastore
                 hdfsEnvironment,
                 requireNonNull(config, "config is null").isMetastoreImpersonationEnabled(),
                 requireNonNull(config, "config is null").isDeleteFilesOnTableDrop(),
-                requireNonNull(config, "config is null").getHiveMetastoreAuthenticationType() != HiveMetastoreAuthenticationType.NONE);
+                requireNonNull(config, "config is null").getHiveMetastoreAuthenticationType());
     }
 
     public ThriftHiveMetastore(
@@ -206,7 +207,7 @@ public class ThriftHiveMetastore
             HdfsEnvironment hdfsEnvironment,
             boolean impersonationEnabled,
             boolean deleteFilesOnTableDrop,
-            boolean isMetastoreAuthenticationEnabled)
+            HiveMetastoreAuthenticationType hiveMetastoreAuthenticationType)
     {
         this.clientProvider = requireNonNull(hiveCluster, "hiveCluster is null");
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
@@ -214,7 +215,7 @@ public class ThriftHiveMetastore
         this.exceptionMapper = requireNonNull(exceptionMapper, "exceptionMapper is null");
         this.impersonationEnabled = impersonationEnabled;
         this.deleteFilesOnTableDrop = deleteFilesOnTableDrop;
-        this.isMetastoreAuthenticationEnabled = isMetastoreAuthenticationEnabled;
+        this.hiveMetastoreAuthenticationType = hiveMetastoreAuthenticationType;
     }
 
     private static boolean isPrestoView(Table table)
@@ -1308,7 +1309,8 @@ public class ThriftHiveMetastore
                 return callable.call(client);
             }
         }
-        if (isMetastoreAuthenticationEnabled) {
+
+        if (hiveMetastoreAuthenticationType.equals(KERBEROS)) {
             String token;
             try (HiveMetastoreClient client = clientProvider.createMetastoreClient(Optional.empty())) {
                 token = client.getDelegationToken(metastoreContext.getUsername(), metastoreContext.getUsername());
@@ -1317,6 +1319,7 @@ public class ThriftHiveMetastore
                 return callable.call(realClient);
             }
         }
+
         HiveMetastoreClient client = clientProvider.createMetastoreClient(Optional.empty());
         setMetastoreUserOrClose(client, metastoreContext.getUsername());
         return callable.call(client);
