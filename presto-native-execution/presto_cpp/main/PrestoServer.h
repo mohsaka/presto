@@ -130,8 +130,7 @@ class PrestoServer {
 
   virtual std::shared_ptr<velox::exec::ExprSetListener> getExprSetListener();
 
-  virtual std::vector<std::string> registerVeloxConnectors(
-      const fs::path& configDirectoryPath);
+  virtual void registerVeloxConnectors(const fs::path& configDirectoryPath);
 
   /// Invoked to register the required dwio data sinks which are used by
   /// connectors.
@@ -207,6 +206,19 @@ class PrestoServer {
   void handleGracefulShutdown(
       const std::vector<std::unique_ptr<folly::IOBuf>>& body,
       proxygen::ResponseHandler* downstream);
+
+  void registerCatalogFromJson(
+      const proxygen::HTTPMessage* message,
+      const std::vector<std::unique_ptr<folly::IOBuf>>& body,
+      proxygen::ResponseHandler* downstream);
+
+  void registerCatalogsFromPath(const fs::path& configDirectoryPath);
+  void registerCatalog(
+      const std::string& catalogName,
+      std::unordered_map<std::string, std::string> connectorConf);
+  void writeConfigToFile(
+      const fs::path& propertyFile,
+      const std::string& config);
 
   protocol::NodeStatus fetchNodeStatus();
 
@@ -299,6 +311,7 @@ class PrestoServer {
   std::string nodePoolType_;
   folly::SSLContextPtr sslContext_;
   std::string prestoBuiltinFunctionPrefix_;
+  std::vector<std::string> catalogNames_;
 };
 
 } // namespace facebook::presto

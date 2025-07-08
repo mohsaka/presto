@@ -73,6 +73,28 @@ std::unordered_map<std::string, std::string> readConfig(
   return properties;
 }
 
+std::unordered_map<std::string, std::string> readConfigFromJson(
+    const nlohmann::json& json,
+    std::ostringstream& propertiesString) {
+  std::unordered_map<std::string, std::string> connectorConf;
+  for (auto it = json.begin(); it != json.end(); ++it) {
+    VELOX_USER_CHECK(
+        it.value().is_string(),
+        fmt::format(
+            "Value for key '{}' must be a string, but got: {}",
+            it.key(),
+            it.value().dump()));
+    propertiesString << it.key() << "=" << it.value().get<std::string>()
+                     << "\n";
+
+    // Fill in the mapping for in-memory catalog creation.
+    auto value = it.value().get<std::string>();
+    extractValueIfEnvironmentVariable(value);
+    connectorConf.emplace(it.key(), value);
+  }
+  return connectorConf;
+}
+
 std::string requiredProperty(
     const std::unordered_map<std::string, std::string>& properties,
     const std::string& name) {

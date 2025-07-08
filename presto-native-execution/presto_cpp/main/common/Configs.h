@@ -747,6 +747,8 @@ class SystemConfig : public ConfigBase {
   static constexpr std::string_view kRequestDataSizesMaxWaitSec{
     "exchange.http-client.request-data-sizes-max-wait-sec"};
 
+  static constexpr std::string_view kDynamicCatalogPath{"dynamic-catalog-path"};
+
   SystemConfig();
 
   virtual ~SystemConfig() = default;
@@ -1021,6 +1023,8 @@ class SystemConfig : public ConfigBase {
   bool orderBySpillEnabled() const;
 
   int requestDataSizesMaxWaitSec() const;
+
+  std::string dynamicCatalogPath() const;
 };
 
 /// Provides access to node properties defined in node.properties file.

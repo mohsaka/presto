@@ -16,6 +16,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include "presto_cpp/external/json/nlohmann/json.hpp"
 
 namespace facebook::velox::config {
 class ConfigBase;
@@ -25,6 +26,10 @@ namespace facebook::presto::util {
 
 std::unordered_map<std::string, std::string> readConfig(
     const std::string& filePath);
+
+std::unordered_map<std::string, std::string> readConfigFromJson(
+    const nlohmann::json& json,
+    std::ostringstream& propertiesString);
 
 std::string requiredProperty(
     const std::unordered_map<std::string, std::string>& properties,
