@@ -58,6 +58,7 @@ public class OracleClient
 
     private final boolean synonymsEnabled;
     private final int numberDefaultScale;
+    private final boolean enableMixedCaseSupport;
 
     @Inject
     public OracleClient(
@@ -72,6 +73,7 @@ public class OracleClient
         this.synonymsEnabled = oracleConfig.isSynonymsEnabled();
         this.numberDefaultScale = oracleConfig.getNumberDefaultScale();
         this.fetchSize = config.getFetchSize();
+        this.enableMixedCaseSupport = config.isCaseSensitiveNameMatching();
     }
 
     private String[] getTableTypes()
@@ -80,6 +82,13 @@ public class OracleClient
             return new String[] {"TABLE", "VIEW", "SYNONYM"};
         }
         return new String[] {"TABLE", "VIEW"};
+    }
+
+    @Override
+    protected String quoted(String name)
+    {
+        name = !enableMixedCaseSupport ? name.toUpperCase() : name;
+        return identifierQuote + name + identifierQuote;
     }
 
     @Override
