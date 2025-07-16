@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.sql.tree;
 
+import com.facebook.presto.spi.analyzer.UpdateInfo;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -69,6 +70,12 @@ public class SetColumnType
     public List<TransactionMode> getChildren()
     {
         return ImmutableList.of();
+    }
+
+    @Override
+    public UpdateInfo getUpdateInfo()
+    {
+        return new UpdateInfo("SET COLUMN TYPE", tableName.toString());
     }
 
     @Override
