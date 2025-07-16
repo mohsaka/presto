@@ -24,7 +24,6 @@ import com.google.common.collect.Ordering;
 import com.google.common.io.Files;
 import io.airlift.units.Duration;
 import org.apache.hadoop.fs.Path;
-import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 import java.io.File;
@@ -1248,10 +1247,7 @@ public class TestPrestoSparkQueryRunner
         deleteRecursively(tempDir.toPath(), ALLOW_INSECURE);
     }
 
-    //
     @Test
-    @Ignore("PrsetoSparkQueryRunner was changed to use hive user with admin priviliges. It breaks this tess assumptions." +
-            "Update this test to not make assumptions")
     public void testGrants()
     {
         assertQuerySucceeds("CREATE SCHEMA hive.hive_test_new");
@@ -1275,8 +1271,6 @@ public class TestPrestoSparkQueryRunner
     }
 
     @Test
-    @Ignore("PrsetoSparkQueryRunner was changed to use hive user with admin priviliges. It breaks this tess assumptions." +
-            "Update this test to not make assumptions")
     public void testRoles()
     {
         assertQuerySucceeds("CREATE ROLE admin");
