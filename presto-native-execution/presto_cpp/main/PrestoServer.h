@@ -130,8 +130,6 @@ class PrestoServer {
 
   virtual std::shared_ptr<velox::exec::ExprSetListener> getExprSetListener();
 
-  virtual void registerVeloxConnectors(const fs::path& configDirectoryPath);
-
   /// Invoked to register the required dwio data sinks which are used by
   /// connectors.
   virtual void registerFileSinks();
@@ -190,6 +188,8 @@ class PrestoServer {
 
   void initializeThreadPools();
 
+  void initializeExecutors();
+
   void registerStatsCounters();
 
  protected:
@@ -207,15 +207,12 @@ class PrestoServer {
       const std::vector<std::unique_ptr<folly::IOBuf>>& body,
       proxygen::ResponseHandler* downstream);
 
-  void registerCatalogFromJson(
-      const proxygen::HTTPMessage* message,
-      const std::vector<std::unique_ptr<folly::IOBuf>>& body,
-      proxygen::ResponseHandler* downstream);
-
   void registerCatalogsFromPath(const fs::path& configDirectoryPath);
+
   void registerCatalog(
       const std::string& catalogName,
       std::unordered_map<std::string, std::string> connectorConf);
+
   void writeConfigToFile(
       const fs::path& propertyFile,
       const std::string& config);

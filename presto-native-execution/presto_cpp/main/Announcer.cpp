@@ -114,12 +114,12 @@ std::tuple<proxygen::HTTPMessage, std::string> Announcer::httpRequest() {
 }
 
 void Announcer::updateConnectorIds(
-    const std::vector<std::string>& newConnectorIds) {
+    const std::vector<std::string>& connectorIds) {
   std::lock_guard<std::mutex> lock(announcementMutex_);
   // Replace announcementBody's connectorIds list with the new one.
   auto json = nlohmann::json::parse(announcementBody_);
   json["services"][0]["properties"]["connectorIds"] =
-      folly::join(',', newConnectorIds);
+      folly::join(',', connectorIds);
   announcementBody_ = json.dump();
 
   // Adjust HTTP_HEADER_CONTENT_LENGTH to account for the additional catalogs.
