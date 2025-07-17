@@ -55,8 +55,7 @@ class Announcer : public PeriodicServiceInventoryManager {
   std::vector<std::string> connectorIds_;
   std::string announcementBody_;
   proxygen::HTTPMessage announcementRequest_;
-
-  bool regenerate_;
+  std::mutex announcementMutex_;
 };
 
 } // namespace facebook::presto

@@ -114,31 +114,29 @@ Announcer::Announcer(
           sidecar,
           connectorIds)),
       announcementRequest_(
-          announcementRequest(address, port, nodeId, announcementBody_)),
-      regenerate_(false) {}
+          announcementRequest(address, port, nodeId, announcementBody_)) {}
 
 std::tuple<proxygen::HTTPMessage, std::string> Announcer::httpRequest() {
-  if (regenerate_) {
-    announcementBody_ = announcementBody(
-        address_,
-        useHttps_,
-        port_,
-        nodeVersion_,
-        environment_,
-        nodeLocation_,
-        nodePoolType_,
-        sidecar_,
-        connectorIds_);
-    announcementRequest_ =
-        announcementRequest(address_, port_, nodeId_, announcementBody_);
-  }
+  std::lock_guard<std::mutex> lock(announcementMutex_);
   return {announcementRequest_, announcementBody_};
 }
 
 void Announcer::updateConnectorIds(
     const std::vector<std::string>& connectorIds) {
+  std::lock_guard<std::mutex> lock(announcementMutex_);
   connectorIds_ = connectorIds;
-  regenerate_ = true;
+  announcementBody_ = announcementBody(
+      address_,
+      useHttps_,
+      port_,
+      nodeVersion_,
+      environment_,
+      nodeLocation_,
+      nodePoolType_,
+      sidecar_,
+      connectorIds_);
+  announcementRequest_ =
+      announcementRequest(address_, port_, nodeId_, announcementBody_);
 }
 
 } // namespace facebook::presto
