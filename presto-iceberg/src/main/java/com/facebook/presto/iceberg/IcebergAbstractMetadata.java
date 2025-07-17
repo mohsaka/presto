@@ -23,8 +23,9 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.TimestampWithTimeZoneType;
 import com.facebook.presto.common.type.TypeManager;
 import com.facebook.presto.common.type.VarcharType;
+import com.facebook.presto.hive.HiveOutputInfo;
+import com.facebook.presto.hive.HiveOutputMetadata;
 import com.facebook.presto.hive.HivePartition;
-import com.facebook.presto.hive.HiveWrittenPartitions;
 import com.facebook.presto.hive.NodeVersion;
 import com.facebook.presto.iceberg.changelog.ChangelogOperation;
 import com.facebook.presto.iceberg.changelog.ChangelogUtil;
@@ -430,7 +431,7 @@ public abstract class IcebergAbstractMetadata
         try {
             Table icebergTable = getIcebergTable(session, schemaTableName);
             ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
-            columns.addAll(getColumnMetadata(icebergTable));
+            columns.addAll(getColumnMetadata(session, icebergTable));
             if (icebergTableName.getTableType() == CHANGELOG) {
                 return ChangelogUtil.getChangelogTableMeta(table, typeManager, columns.build());
             }
@@ -448,7 +449,7 @@ public abstract class IcebergAbstractMetadata
             //  try to load it as a view when getting an `NoSuchTableException`. This will be more efficient.
             try {
                 View icebergView = getIcebergView(session, schemaTableName);
-                return new ConnectorTableMetadata(table, getColumnMetadata(icebergView), createViewMetadataProperties(icebergView), getViewComment(icebergView));
+                return new ConnectorTableMetadata(table, getColumnMetadata(session, icebergView), createViewMetadataProperties(icebergView), getViewComment(icebergView));
             }
             catch (NoSuchViewException noSuchViewException) {
                 throw new TableNotFoundException(schemaTableName);
@@ -578,9 +579,9 @@ public abstract class IcebergAbstractMetadata
             throw new PrestoException(ICEBERG_COMMIT_ERROR, "Failed to commit Iceberg update to table: " + writableTableHandle.getTableName(), e);
         }
 
-        return Optional.of(new HiveWrittenPartitions(commitTasks.stream()
+        return Optional.of(new HiveOutputMetadata(new HiveOutputInfo(commitTasks.stream()
                 .map(CommitTaskData::getPath)
-                .collect(toImmutableList())));
+                .collect(toImmutableList()), icebergTable.location())));
     }
 
     private Optional<ConnectorOutputMetadata> finishWrite(ConnectorSession session, IcebergWritableTableHandle writableTableHandle, Collection<Slice> fragments, ChangelogOperation operationType)
@@ -625,9 +626,9 @@ public abstract class IcebergAbstractMetadata
             throw new PrestoException(ICEBERG_COMMIT_ERROR, "Failed to commit Iceberg update to table: " + writableTableHandle.getTableName(), e);
         }
 
-        return Optional.of(new HiveWrittenPartitions(commitTasks.stream()
+        return Optional.of(new HiveOutputMetadata(new HiveOutputInfo(commitTasks.stream()
                 .map(CommitTaskData::getPath)
-                .collect(toImmutableList())));
+                .collect(toImmutableList()), icebergTable.location())));
     }
 
     private void handleInsertTask(CommitTaskData task, Table icebergTable, AppendFiles appendFiles, ImmutableSet.Builder<String> writtenFiles)
@@ -706,12 +707,12 @@ public abstract class IcebergAbstractMetadata
         return !isPushdownFilterEnabled(session);
     }
 
-    protected List<ColumnMetadata> getColumnMetadata(Table table)
+    protected List<ColumnMetadata> getColumnMetadata(ConnectorSession session, Table table)
     {
         Map<String, List<String>> partitionFields = getPartitionFields(table.spec(), ALL);
         return table.schema().columns().stream()
                 .map(column -> ColumnMetadata.builder()
-                        .setName(column.name())
+                        .setName(normalizeIdentifier(session, column.name()))
                         .setType(toPrestoType(column.type(), typeManager))
                         .setComment(column.doc())
                         .setHidden(false)
@@ -722,11 +723,11 @@ public abstract class IcebergAbstractMetadata
                 .collect(toImmutableList());
     }
 
-    protected List<ColumnMetadata> getColumnMetadata(View view)
+    protected List<ColumnMetadata> getColumnMetadata(ConnectorSession session, View view)
     {
         return view.schema().columns().stream()
                 .map(column -> ColumnMetadata.builder()
-                        .setName(column.name())
+                        .setName(normalizeIdentifier(session, column.name()))
                         .setType(toPrestoType(column.type(), typeManager))
                         .setComment(column.doc())
                         .setHidden(false)
@@ -927,7 +928,7 @@ public abstract class IcebergAbstractMetadata
         Table icebergTable = getIcebergTable(session, table.getSchemaTableName());
         Schema schema;
         if (table.getIcebergTableName().getTableType() == CHANGELOG) {
-            schema = ChangelogUtil.changelogTableSchema(getRowTypeFromColumnMeta(getColumnMetadata(icebergTable)));
+            schema = ChangelogUtil.changelogTableSchema(getRowTypeFromColumnMeta(getColumnMetadata(session, icebergTable)));
         }
         else {
             schema = icebergTable.schema();
@@ -1332,5 +1333,18 @@ public abstract class IcebergAbstractMetadata
     protected Optional<String> getDataLocationBasedOnWarehouseDataDir(SchemaTableName schemaTableName)
     {
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<Object> getInfo(ConnectorTableLayoutHandle tableHandle)
+    {
+        IcebergTableLayoutHandle icebergTableHandle = (IcebergTableLayoutHandle) tableHandle;
+        Optional<String> outputPath = icebergTableHandle.getTable().getOutputPath();
+        if (outputPath == null || !outputPath.isPresent()) {
+            return Optional.empty();
+        }
+        return Optional.of(new IcebergInputInfo(
+                icebergTableHandle.getTable().getIcebergTableName().getSnapshotId(),
+                outputPath.get()));
     }
 }

@@ -220,7 +220,7 @@ public class SqlQueryExecution
                         .recordWallAndCpuTime(ANALYZE_TIME_NANOS, () -> queryAnalyzer.analyze(analyzerContext, preparedQuery));
             }
 
-            stateMachine.setUpdateType(queryAnalysis.getUpdateType());
+            stateMachine.setUpdateInfo(queryAnalysis.getUpdateInfo());
             stateMachine.setExpandedQuery(queryAnalysis.getExpandedQuery());
 
             stateMachine.beginColumnAccessPermissionChecking();
@@ -644,7 +644,7 @@ public class SqlQueryExecution
 
     private void createQueryScheduler(PlanRoot plan)
     {
-        CloseableSplitSourceProvider splitSourceProvider = new CloseableSplitSourceProvider(splitManager::getSplits);
+        CloseableSplitSourceProvider splitSourceProvider = new CloseableSplitSourceProvider(splitManager);
 
         // ensure split sources are closed
         stateMachine.addStateChangeListener(state -> {

@@ -62,6 +62,7 @@ import com.facebook.presto.spi.connector.ConnectorPartitioningHandle;
 import com.facebook.presto.spi.connector.ConnectorPartitioningMetadata;
 import com.facebook.presto.spi.connector.ConnectorTableVersion;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.constraints.TableConstraint;
 import com.facebook.presto.spi.function.SqlFunction;
 import com.facebook.presto.spi.plan.PartitioningHandle;
@@ -106,6 +107,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 import static com.facebook.airlift.concurrent.MoreFutures.toListenableFuture;
 import static com.facebook.presto.SystemSessionProperties.isIgnoreStatsCalculatorFailures;
@@ -245,7 +247,7 @@ public class MetadataManager
     {
         BlockEncodingManager blockEncodingManager = new BlockEncodingManager();
         return new MetadataManager(
-                new FunctionAndTypeManager(transactionManager, blockEncodingManager, featuresConfig, functionsConfig, new HandleResolver(), ImmutableSet.of()),
+                new FunctionAndTypeManager(transactionManager, new TableFunctionRegistry(), blockEncodingManager, featuresConfig, functionsConfig, new HandleResolver(), ImmutableSet.of()),
                 blockEncodingManager,
                 createTestingSessionPropertyManager(),
                 new SchemaPropertyManager(),
@@ -530,7 +532,7 @@ public class MetadataManager
 
         ImmutableMap.Builder<String, ColumnHandle> map = ImmutableMap.builder();
         for (Entry<String, ColumnHandle> mapEntry : handles.entrySet()) {
-            map.put(mapEntry.getKey().toLowerCase(ENGLISH), mapEntry.getValue());
+            map.put(normalizeIdentifier(session, connectorId.getCatalogName(), mapEntry.getKey()), mapEntry.getValue());
         }
         return map.build();
     }
@@ -543,7 +545,10 @@ public class MetadataManager
 
         ConnectorId connectorId = tableHandle.getConnectorId();
         ConnectorMetadata metadata = getMetadata(session, connectorId);
-        return metadata.getColumnMetadata(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), columnHandle);
+        ColumnMetadata columnMetadata = metadata.getColumnMetadata(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), columnHandle);
+        ColumnMetadata normalizedColumnMetadata = normalizedColumnMetadata(session, connectorId.getCatalogName(), columnMetadata);
+
+        return normalizedColumnMetadata;
     }
 
     @Override
@@ -598,7 +603,12 @@ public class MetadataManager
                             prefix.getCatalogName(),
                             entry.getKey().getSchemaName(),
                             entry.getKey().getTableName());
-                    tableColumns.put(tableName, entry.getValue());
+
+                    ImmutableList.Builder<ColumnMetadata> normalizedColumns = ImmutableList.builder();
+                    for (ColumnMetadata column : entry.getValue()) {
+                        normalizedColumns.add(normalizedColumnMetadata(session, connectorId.getCatalogName(), column));
+                    }
+                    tableColumns.put(tableName, normalizedColumns.build());
                 }
 
                 // if table and view names overlap, the view wins
@@ -611,7 +621,7 @@ public class MetadataManager
                     ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
                     for (ViewColumn column : deserializeView(entry.getValue().getViewData()).getColumns()) {
                         columns.add(ColumnMetadata.builder()
-                                .setName(column.getName())
+                                .setName(normalizeIdentifier(session, connectorId.getCatalogName(), column.getName()))
                                 .setType(column.getType())
                                 .build());
                     }
@@ -665,9 +675,13 @@ public class MetadataManager
         CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalogName);
         ConnectorId connectorId = catalogMetadata.getConnectorId();
         ConnectorMetadata metadata = catalogMetadata.getMetadata();
+        List<ColumnMetadata> normalizedColumns = columns.stream()
+                .map(column -> normalizedColumnMetadata(session, connectorId.getCatalogName(), column))
+                .collect(Collectors.toList());
+
         ConnectorTableHandle connectorTableHandle = metadata.createTemporaryTable(
                 session.toConnectorSession(connectorId),
-                columns,
+                normalizedColumns,
                 partitioningMetadata.map(partitioning -> createConnectorPartitioningMetadata(connectorId, partitioning)));
         return new TableHandle(connectorId, connectorTableHandle, catalogMetadata.getTransactionHandleFor(connectorId), Optional.empty());
     }
@@ -713,7 +727,7 @@ public class MetadataManager
     {
         ConnectorId connectorId = tableHandle.getConnectorId();
         ConnectorMetadata metadata = getMetadataForWrite(session, connectorId);
-        metadata.renameColumn(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), source, target.toLowerCase(ENGLISH));
+        metadata.renameColumn(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), source, normalizeIdentifier(session, connectorId.getCatalogName(), target));
     }
 
     @Override
@@ -1507,6 +1521,18 @@ public class MetadataManager
     }
 
     @Override
+    public Optional<TableFunctionApplicationResult<TableHandle>> applyTableFunction(Session session, TableFunctionHandle handle)
+    {
+        ConnectorId connectorId = handle.getConnectorId();
+        ConnectorMetadata metadata = getMetadata(session, connectorId);
+
+        return metadata.applyTableFunction(session.toConnectorSession(connectorId), handle.getFunctionHandle())
+                .map(result -> new TableFunctionApplicationResult<>(
+                        new TableHandle(connectorId, result.getTableHandle(), handle.getTransactionHandle(), Optional.empty()),
+                        result.getColumnHandles()));
+    }
+
+    @Override
     public String normalizeIdentifier(Session session, String catalogName, String identifier)
     {
         long startTime = System.nanoTime();
@@ -1519,6 +1545,19 @@ public class MetadataManager
         }
         session.getRuntimeStats().addMetricValue(GET_IDENTIFIER_NORMALIZATION_TIME_NANOS, NANO, System.nanoTime() - startTime);
         return normalizedString;
+    }
+
+    private ColumnMetadata normalizedColumnMetadata(Session session, String catalogName, ColumnMetadata columnMetadata)
+    {
+        return ColumnMetadata.builder()
+                .setName(normalizeIdentifier(session, catalogName, columnMetadata.getName()))
+                .setType(columnMetadata.getType())
+                .setHidden(columnMetadata.isHidden())
+                .setNullable(columnMetadata.isNullable())
+                .setComment(columnMetadata.getComment().orElse(null))
+                .setProperties(columnMetadata.getProperties())
+                .setExtraInfo(columnMetadata.getExtraInfo().orElse(null))
+                .build();
     }
 
     private ViewDefinition deserializeView(String data)

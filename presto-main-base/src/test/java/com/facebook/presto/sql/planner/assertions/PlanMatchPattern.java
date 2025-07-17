@@ -187,6 +187,22 @@ public final class PlanMatchPattern
                 .with(new IndexSourceMatcher(expectedTableName));
     }
 
+    public static PlanMatchPattern indexSource(String expectedTableName, Map<String, String> columnReferences)
+    {
+        return node(IndexSourceNode.class)
+                .with(new IndexSourceMatcher(expectedTableName))
+                .addColumnReferences(expectedTableName, columnReferences);
+    }
+
+    public static PlanMatchPattern strictIndexSource(String expectedTableName, Map<String, String> columnReferences)
+    {
+        return node(IndexSourceNode.class)
+                .with(new IndexSourceMatcher(expectedTableName))
+                .withExactAssignedOutputs(columnReferences.values().stream()
+                        .map(columnName -> columnReference(expectedTableName, columnName))
+                        .collect(toImmutableList()));
+    }
+
     public static PlanMatchPattern constrainedIndexSource(String expectedTableName, Map<String, Domain> constraint, Map<String, String> columnReferences)
     {
         return node(IndexSourceNode.class)
@@ -640,6 +656,11 @@ public final class PlanMatchPattern
         return values(ImmutableList.copyOf(aliases));
     }
 
+    public static PlanMatchPattern values(int rowCount)
+    {
+        return values(ImmutableList.of(), nCopies(rowCount, ImmutableList.of()));
+    }
+
     public static PlanMatchPattern values(List<String> aliases, List<List<Expression>> expectedRows)
     {
         return values(aliases, Optional.of(expectedRows));
@@ -678,6 +699,27 @@ public final class PlanMatchPattern
     public static PlanMatchPattern remoteSource(List<PlanFragmentId> sourceFragmentIds, Map<String, Integer> outputSymbolAliases)
     {
         return node(RemoteSourceNode.class).with(new RemoteSourceMatcher(sourceFragmentIds, outputSymbolAliases));
+    }
+
+    public static PlanMatchPattern tableFunction(Consumer<TableFunctionMatcher.Builder> handler, PlanMatchPattern... sources)
+    {
+        TableFunctionMatcher.Builder builder = new TableFunctionMatcher.Builder(sources);
+        handler.accept(builder);
+        return builder.build();
+    }
+
+    public static PlanMatchPattern tableFunctionProcessor(Consumer<TableFunctionProcessorMatcher.Builder> handler, PlanMatchPattern source)
+    {
+        TableFunctionProcessorMatcher.Builder builder = new TableFunctionProcessorMatcher.Builder(source);
+        handler.accept(builder);
+        return builder.build();
+    }
+
+    public static PlanMatchPattern tableFunctionProcessor(Consumer<TableFunctionProcessorMatcher.Builder> handler)
+    {
+        TableFunctionProcessorMatcher.Builder builder = new TableFunctionProcessorMatcher.Builder();
+        handler.accept(builder);
+        return builder.build();
     }
 
     public PlanMatchPattern(List<PlanMatchPattern> sourcePatterns)
