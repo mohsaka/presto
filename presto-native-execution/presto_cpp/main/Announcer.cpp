@@ -117,6 +117,8 @@ Announcer::Announcer(
           announcementRequest(address, port, nodeId, announcementBody_)) {}
 
 std::tuple<proxygen::HTTPMessage, std::string> Announcer::httpRequest() {
+  // There is a small chance that we may be announcing when we are
+  // updating the connectorIds. To prevent a race condition, add a mutex lock.
   std::lock_guard<std::mutex> lock(announcementMutex_);
   return {announcementRequest_, announcementBody_};
 }
