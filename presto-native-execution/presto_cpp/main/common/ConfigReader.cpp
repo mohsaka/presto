@@ -98,6 +98,9 @@ std::unordered_map<std::string, std::string> readConfigFromJson(
 void writeConfigToFile(
     const fs::path& propertyFile,
     const std::string& config) {
+
+  // This function runs when the config is not successfully written.
+  // If a partial file or some corruption occurs, it is deleted.
   auto removePropertyFile = [](const std::filesystem::path& propertyFile) {
     std::error_code ec;
     if (std::filesystem::remove(propertyFile, ec)) {
