@@ -95,6 +95,14 @@ Announcer::Announcer(
           std::move(sslContext),
           "Announcement",
           maxFrequencyMs),
+      useHttps_(useHttps),
+      nodeVersion_(nodeVersion),
+      environment_(environment),
+      nodeId_(nodeId),
+      nodeLocation_(nodeLocation),
+      nodePoolType_(nodePoolType),
+      sidecar_(sidecar),
+      connectorIds_(connectorIds),
       announcementBody_(announcementBody(
           address,
           useHttps,
@@ -106,26 +114,31 @@ Announcer::Announcer(
           sidecar,
           connectorIds)),
       announcementRequest_(
-          announcementRequest(address, port, nodeId, announcementBody_)) {}
+          announcementRequest(address, port, nodeId, announcementBody_)),
+      regenerate_(false) {}
 
 std::tuple<proxygen::HTTPMessage, std::string> Announcer::httpRequest() {
-  std::lock_guard<std::mutex> lock(announcementMutex_);
+  if (regenerate_) {
+    announcementBody_ = announcementBody(
+        address_,
+        useHttps_,
+        port_,
+        nodeVersion_,
+        environment_,
+        nodeLocation_,
+        nodePoolType_,
+        sidecar_,
+        connectorIds_);
+    announcementRequest_ =
+        announcementRequest(address_, port_, nodeId_, announcementBody_);
+  }
   return {announcementRequest_, announcementBody_};
 }
 
 void Announcer::updateConnectorIds(
     const std::vector<std::string>& connectorIds) {
-  std::lock_guard<std::mutex> lock(announcementMutex_);
-  // Replace announcementBody's connectorIds list with the new one.
-  auto json = nlohmann::json::parse(announcementBody_);
-  json["services"][0]["properties"]["connectorIds"] =
-      folly::join(',', connectorIds);
-  announcementBody_ = json.dump();
-
-  // Adjust HTTP_HEADER_CONTENT_LENGTH to account for the additional catalogs.
-  announcementRequest_.getHeaders().set(
-      proxygen::HTTP_HEADER_CONTENT_LENGTH,
-      std::to_string(announcementBody_.size()));
+  connectorIds_ = connectorIds;
+  regenerate_ = true;
 }
 
 } // namespace facebook::presto
