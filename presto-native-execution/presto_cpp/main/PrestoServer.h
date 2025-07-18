@@ -25,6 +25,7 @@
 #include "presto_cpp/main/PeriodicHeartbeatManager.h"
 #include "presto_cpp/main/PrestoExchangeSource.h"
 #include "presto_cpp/main/PrestoServerOperations.h"
+#include "presto_cpp/main/common/CatalogManager.h"
 #include "presto_cpp/main/types/VeloxPlanValidator.h"
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/memory/MemoryAllocator.h"
@@ -130,6 +131,9 @@ class PrestoServer {
 
   virtual std::shared_ptr<velox::exec::ExprSetListener> getExprSetListener();
 
+  virtual std::vector<std::string> registerVeloxConnectors(
+      const fs::path& configDirectoryPath);
+
   /// Invoked to register the required dwio data sinks which are used by
   /// connectors.
   virtual void registerFileSinks();
@@ -188,8 +192,6 @@ class PrestoServer {
 
   void initializeThreadPools();
 
-  void initializeExecutors();
-
   void registerStatsCounters();
 
  protected:
@@ -206,16 +208,6 @@ class PrestoServer {
   void handleGracefulShutdown(
       const std::vector<std::unique_ptr<folly::IOBuf>>& body,
       proxygen::ResponseHandler* downstream);
-
-  void registerCatalogsFromPath(const fs::path& configDirectoryPath);
-
-  void registerCatalog(
-      const std::string& catalogName,
-      std::unordered_map<std::string, std::string> connectorConf);
-
-  void writeConfigToFile(
-      const fs::path& propertyFile,
-      const std::string& config);
 
   protocol::NodeStatus fetchNodeStatus();
 
@@ -308,7 +300,6 @@ class PrestoServer {
   std::string nodePoolType_;
   folly::SSLContextPtr sslContext_;
   std::string prestoBuiltinFunctionPrefix_;
-  std::vector<std::string> catalogNames_;
 };
 
 } // namespace facebook::presto

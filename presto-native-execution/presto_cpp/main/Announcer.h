@@ -39,20 +39,12 @@ class Announcer : public PeriodicServiceInventoryManager {
 
   ~Announcer() = default;
 
-  void updateConnectorIds(const std::vector<std::string>& newConnectorIds);
+  void updateConnectorIds(const std::vector<std::string>* newConnectorIds);
 
  protected:
   std::tuple<proxygen::HTTPMessage, std::string> httpRequest() override;
 
  private:
-  bool useHttps_;
-  const std::string nodeVersion_;
-  const std::string environment_;
-  const std::string nodeId_;
-  const std::string nodeLocation_;
-  const std::string nodePoolType_;
-  const bool sidecar_;
-  std::vector<std::string> connectorIds_;
   std::string announcementBody_;
   proxygen::HTTPMessage announcementRequest_;
   std::mutex announcementMutex_;

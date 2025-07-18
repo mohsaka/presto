@@ -73,69 +73,6 @@ std::unordered_map<std::string, std::string> readConfig(
   return properties;
 }
 
-std::unordered_map<std::string, std::string> readConfigFromJson(
-    const nlohmann::json& json,
-    std::ostringstream& propertiesString) {
-  std::unordered_map<std::string, std::string> config;
-  for (auto it = json.begin(); it != json.end(); ++it) {
-    VELOX_USER_CHECK(
-        it.value().is_string(),
-        fmt::format(
-            "Value for key '{}' must be a string, but got: {}",
-            it.key(),
-            it.value().dump()));
-    propertiesString << it.key() << "=" << it.value().get<std::string>()
-                     << "\n";
-
-    // Fill in the mapping for in-memory catalog creation.
-    auto value = it.value().get<std::string>();
-    extractValueIfEnvironmentVariable(value);
-    config.emplace(it.key(), value);
-  }
-  return config;
-}
-
-void writeConfigToFile(
-    const fs::path& propertyFile,
-    const std::string& config) {
-
-  // This function runs when the config is not successfully written.
-  // If a partial file or some corruption occurs, it is deleted.
-  auto removePropertyFile = [](const std::filesystem::path& propertyFile) {
-    std::error_code ec;
-    if (std::filesystem::remove(propertyFile, ec)) {
-      LOG(INFO) << "Removed file " << propertyFile;
-    } else {
-      LOG(WARNING) << "Failed to remove file " << propertyFile
-                   << ". Error: " << ec.message();
-    }
-  };
-  std::ofstream out(propertyFile);
-  if (!out.is_open()) {
-    LOG(WARNING) << "Unable to open file " << propertyFile
-                 << ". Catalog will be in memory only.";
-    return;
-  }
-
-  out << config;
-  if (out.fail()) {
-    LOG(WARNING) << "Unable to write to file " << propertyFile
-                 << ". Catalog will be in memory only.";
-    removePropertyFile(propertyFile);
-    return;
-  }
-
-  out.close();
-
-  // If something goes wrong while closing, for example, buffer flush fails or
-  // disk is full, attempt to clean up the file.
-  if (out.fail() || out.bad()) {
-    LOG(WARNING) << "Unable to close file " << propertyFile
-                 << ". Catalog will be in memory only.";
-    removePropertyFile(propertyFile);
-  }
-}
-
 std::string requiredProperty(
     const std::unordered_map<std::string, std::string>& properties,
     const std::string& name) {

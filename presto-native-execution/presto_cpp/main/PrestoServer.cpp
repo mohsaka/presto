@@ -22,7 +22,6 @@
 #include "presto_cpp/main/PeriodicTaskManager.h"
 #include "presto_cpp/main/SignalHandler.h"
 #include "presto_cpp/main/TaskResource.h"
-#include "presto_cpp/main/common/Catalogs.h"
 #include "presto_cpp/main/common/ConfigReader.h"
 #include "presto_cpp/main/common/Counters.h"
 #include "presto_cpp/main/common/Utils.h"
@@ -89,6 +88,7 @@ constexpr char const* kHttp = "http";
 constexpr char const* kHttps = "https";
 constexpr char const* kTaskUriFormat =
     "{}://{}:{}"; // protocol, address and port
+constexpr char const* kConnectorName = "connector.name";
 
 protocol::NodeState convertNodeState(presto::NodeState nodeState) {
   switch (nodeState) {
@@ -108,6 +108,18 @@ void enableChecksum() {
         return std::make_unique<
             velox::serializer::presto::PrestoOutputStreamListener>();
       });
+}
+
+// Log only the catalog keys that are configured to avoid leaking
+// secret information. Some values represent secrets used to access
+// storage backends.
+std::string logConnectorConfigPropertyKeys(
+    const std::unordered_map<std::string, std::string>& configs) {
+  std::stringstream out;
+  for (auto const& [key, value] : configs) {
+    out << "  " << key << "\n";
+  }
+  return out.str();
 }
 
 bool isCacheTtlEnabled() {
@@ -265,14 +277,14 @@ void PrestoServer::run() {
 
   initializeVeloxMemory();
   initializeThreadPools();
-  initializeExecutors();
 
-  catalog::CatalogContext ctx(
-      catalogNames_, connectorIoExecutor_.get(), connectorCpuExecutor_.get());
-  catalog::registerCatalogsFromPath(
-      fs::path(configDirectoryPath_) / "catalog", ctx);
+  std::vector<std::string> catalogNames = registerVeloxConnectors(fs::path(configDirectoryPath_));
+  CatalogManager catalogManager(connectorIoExecutor_.get(), connectorCpuExecutor_.get(), &catalogNames);
+  catalogManager.registerCatalogsFromPath(
+      fs::path(configDirectoryPath_) / "catalog");
   if (!systemConfig->dynamicCatalogPath().empty()) {
-    catalog::registerCatalogsFromPath(systemConfig->dynamicCatalogPath(), ctx);
+    catalogManager.registerCatalogsFromPath(
+        systemConfig->dynamicCatalogPath());
   }
 
   const bool bindToNodeInternalAddressOnly =
@@ -382,12 +394,12 @@ void PrestoServer::run() {
   }
   httpServer_->registerPost(
       R"(/v1/catalog/([^/]+))",
-      [server = this, &ctx](
+      [server = this, &catalogManager](
           proxygen::HTTPMessage* message,
           const std::vector<std::unique_ptr<folly::IOBuf>>& body,
           proxygen::ResponseHandler* downstream) {
-        catalog::registerCatalogFromJson(
-            message, body, downstream, ctx, server->announcer_.get());
+        catalogManager.registerCatalogFromJson(
+            message, body, downstream, server->announcer_.get());
       });
   registerVeloxCudf();
   registerFunctions();
@@ -578,7 +590,7 @@ void PrestoServer::run() {
           nodeLocation_,
           nodePoolType_,
           systemConfig->prestoNativeSidecar(),
-          catalogNames_,
+          catalogNames,
           systemConfig->announcementMaxFrequencyMs(),
           sslContext_);
       updateAnnouncerDetails();
@@ -1164,7 +1176,10 @@ PrestoServer::getHttpServerFilters() const {
   return filters;
 }
 
-void PrestoServer::initializeExecutors() {
+std::vector<std::string> PrestoServer::registerVeloxConnectors(
+    const fs::path& configDirectoryPath) {
+  static const std::string kPropertiesExtension = ".properties";
+
   const auto numConnectorCpuThreads = std::max<size_t>(
       SystemConfig::instance()->connectorNumCpuThreadsHwMultiplier() *
           std::thread::hardware_concurrency(),
@@ -1192,6 +1207,45 @@ void PrestoServer::initializeExecutors() {
         << "Connector IO executor has " << connectorIoExecutor_->numThreads()
         << " threads.";
   }
+
+  std::vector<std::string> catalogNames;
+  for (const auto& entry :
+       fs::directory_iterator(configDirectoryPath / "catalog")) {
+    if (entry.path().extension() == kPropertiesExtension) {
+      auto fileName = entry.path().filename().string();
+      auto catalogName =
+          fileName.substr(0, fileName.size() - kPropertiesExtension.size());
+
+      auto connectorConf = util::readConfig(entry.path());
+      PRESTO_STARTUP_LOG(INFO)
+          << "Registered catalog property keys from " << entry.path() << ":\n"
+          << logConnectorConfigPropertyKeys(connectorConf);
+
+      std::shared_ptr<const velox::config::ConfigBase> properties =
+          std::make_shared<const velox::config::ConfigBase>(
+              std::move(connectorConf));
+
+      auto connectorName = util::requiredProperty(*properties, kConnectorName);
+
+      catalogNames.emplace_back(catalogName);
+
+      PRESTO_STARTUP_LOG(INFO) << "Registering catalog " << catalogName
+                               << " using connector " << connectorName;
+
+      // make sure connector type is supported
+      getPrestoToVeloxConnector(connectorName);
+
+      std::shared_ptr<velox::connector::Connector> connector =
+          velox::connector::getConnectorFactory(connectorName)
+              ->newConnector(
+                  catalogName,
+                  std::move(properties),
+                  connectorIoExecutor_.get(),
+                  connectorCpuExecutor_.get());
+      velox::connector::registerConnector(connector);
+    }
+  }
+  return catalogNames;
 }
 
 void PrestoServer::registerSystemConnector() {
