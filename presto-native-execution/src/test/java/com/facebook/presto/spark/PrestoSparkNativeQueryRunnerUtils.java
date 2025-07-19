@@ -73,7 +73,7 @@ public class PrestoSparkNativeQueryRunnerUtils
 
     private PrestoSparkNativeQueryRunnerUtils() {}
 
-    public static Map<String, String> getNativeExecutionSparkConfigs()
+    public static Map<String, String> getNativeExecutionSessionConfigs()
     {
         ImmutableMap.Builder<String, String> builder = new ImmutableMap.Builder<String, String>()
                 // Do not use default Prestissimo config files. Presto-Spark will generate the configs on-the-fly.
@@ -114,7 +114,7 @@ public class PrestoSparkNativeQueryRunnerUtils
         return createRunner(
                 defaultCatalog,
                 Optional.of(getBaseDataPath()),
-                getNativeExecutionSparkConfigs(),
+                getNativeExecutionSessionConfigs(),
                 getNativeExecutionShuffleConfigs(),
                 ImmutableList.of(nativeExecutionModule));
     }
