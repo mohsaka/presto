@@ -62,16 +62,34 @@ public class TestPrestoSparkNativeGeneralQueries
     }
 
     // TODO: Enable following Ignored tests after fixing (Tests can be enabled by removing the method)
-
-    // This test is broken likely due to Parquet related issues.
     @Override
     @Ignore
     public void testAnalyzeStatsOnDecimals() {}
 
-    // Access Denied: Cannot set catalog session property hive.pushdown_filter_enabled
+    // VeloxUserError:  Unsupported file format in TableWrite: "ORC".
     @Override
     @Ignore
     public void testColumnFilter() {}
+
+    // VeloxUserError:  Unsupported file format in TableWrite: "ORC".
+    @Override
+    @Ignore
+    public void testIPAddressIPPrefix() {}
+
+    // VeloxUserError:  Unsupported file format in TableWrite: "ORC".
+    @Override
+    @Ignore
+    public void testInvalidUuid() {}
+
+    // VeloxUserError:  Unsupported file format in TableWrite: "ORC".
+    @Override
+    @Ignore
+    public void testStringFunctions() {}
+
+    // VeloxUserError:  Unsupported file format in TableWrite: "ORC".
+    @Override
+    @Ignore
+    public void testUuid() {}
 
     // Access Denied: Cannot set catalog session property
     // hive.parquet_pushdown_filter_enabled
@@ -91,25 +109,14 @@ public class TestPrestoSparkNativeGeneralQueries
     @Ignore
     public void testTimestampWithTimeZone() {}
 
-    // pattern assertion is only supported for DistributedQueryRunner
     @Override
     @Ignore
     public void testDistributedSortSingleNode() {}
 
-    // VeloxRuntimeError: ReaderFactory is not registered for format text
+    //VeloxRuntimeError: ReaderFactory is not registered for format text
     @Override
     @Ignore
     public void testReadTableWithTextfileFormat() {}
-
-    // https://github.com/prestodb/presto/issues/22275
-    @Override
-    @Ignore
-    public void testUnionAllInsert() {}
-
-    // java.lang.IllegalArgumentException: pattern assertion is only supported for DistributedQueryRunner
-    @Override
-    @Ignore
-    public void testRowWiseExchange() {}
 
     @Override
     @Ignore
@@ -120,8 +127,17 @@ public class TestPrestoSparkNativeGeneralQueries
     public void testShowAndDescribe() {}
 
     @Override
-    @Ignore
     public void testSystemTables() {}
+
+    // @TODO Refer https://github.com/prestodb/presto/issues/20294
+    @Override
+    @Ignore
+    public void testAnalyzeStats() {}
+
+    // https://github.com/prestodb/presto/issues/22275
+    @Override
+    @Ignore
+    public void testUnionAllInsert() {}
 
     @Override
     @Ignore
@@ -130,4 +146,8 @@ public class TestPrestoSparkNativeGeneralQueries
     @Override
     @Ignore
     public void testSetSessionJavaWorkerSessionProperty() {}
+
+    @Override
+    @Ignore
+    public void testRowWiseExchange() {}
 }

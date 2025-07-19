@@ -182,7 +182,7 @@ public class PrestoSparkNativeQueryRunnerUtils
         return sparkConfigs.build();
     }
 
-    private static synchronized Path getBaseDataPath()
+    public static synchronized Path getBaseDataPath()
     {
         if (dataDirectory.isPresent()) {
             return dataDirectory.get();
