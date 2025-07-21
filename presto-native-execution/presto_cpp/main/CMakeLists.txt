@@ -22,6 +22,7 @@ add_subdirectory(dynamic_registry)
 add_library(
   presto_server_lib
   Announcer.cpp
+  CatalogRegisterer.cpp
   CPUMon.cpp
   CoordinatorDiscoverer.cpp
   PeriodicMemoryChecker.cpp

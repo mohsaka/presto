@@ -133,6 +133,7 @@ public class PrestoNativeQueryRunnerUtils
         // whether the query runner returned by builder should use an external worker launcher, it will be true only
         // for the native query runner and should NOT be explicitly configured by users.
         private boolean useExternalWorkerLauncher;
+        private Optional<String> dynamicCatalogPath = Optional.empty();
 
         private HiveQueryRunnerBuilder(QueryRunnerType queryRunnerType)
         {
@@ -253,6 +254,18 @@ public class PrestoNativeQueryRunnerUtils
             return this;
         }
 
+        public HiveQueryRunnerBuilder setWorkerCount(int workerCount)
+        {
+            this.workerCount = workerCount;
+            return this;
+        }
+
+        public HiveQueryRunnerBuilder setDynamicCatalogPath(String dynamicCatalogPath)
+        {
+            this.dynamicCatalogPath = Optional.of(dynamicCatalogPath);
+            return this;
+        }
+
         public HiveQueryRunnerBuilder setExtraProperties(Map<String, String> extraProperties)
         {
             this.extraProperties.putAll(extraProperties);
@@ -277,7 +290,7 @@ public class PrestoNativeQueryRunnerUtils
             Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
             if (this.useExternalWorkerLauncher) {
                 externalWorkerLauncher = getExternalWorkerLauncher("hive", serverBinary, cacheMaxSize, remoteFunctionServerUds,
-                        failOnNestedLoopJoin, coordinatorSidecarEnabled, builtInWorkerFunctionsEnabled, enableRuntimeMetricsCollection, enableSsdCache, implicitCastCharNToVarchar);
+                        failOnNestedLoopJoin, coordinatorSidecarEnabled, builtInWorkerFunctionsEnabled, enableRuntimeMetricsCollection, enableSsdCache, implicitCastCharNToVarchar, dynamicCatalogPath);
             }
             return HiveQueryRunner.createQueryRunner(
                     ImmutableList.of(),
@@ -366,7 +379,7 @@ public class PrestoNativeQueryRunnerUtils
             Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
             if (this.useExternalWorkerLauncher) {
                 externalWorkerLauncher = getExternalWorkerLauncher("iceberg", serverBinary, cacheMaxSize, remoteFunctionServerUds,
-                        false, false, false, false, false, false);
+                        false, false, false, false, false, false, Optional.empty());
             }
             return IcebergQueryRunner.builder()
                     .setExtraProperties(extraProperties)
@@ -465,7 +478,8 @@ public class PrestoNativeQueryRunnerUtils
             boolean isBuiltInWorkerFunctionsEnabled,
             boolean enableRuntimeMetricsCollection,
             boolean enableSsdCache,
-            boolean implicitCastCharNToVarchar)
+            boolean implicitCastCharNToVarchar,
+            Optional<String> dynamicCatalogPath)
     {
         return
                 Optional.of((workerIndex, discoveryUri) -> {
@@ -502,6 +516,11 @@ public class PrestoNativeQueryRunnerUtils
                             configProperties = format("%s%n" +
                                     "async-cache-ssd-gb=1%n" +
                                     "async-cache-ssd-path=%s/%n", configProperties, ssdCacheDir);
+                        }
+
+                        if (dynamicCatalogPath.isPresent()) {
+                            configProperties = format("%s%n" +
+                                    "dynamic-catalog-path=%s/%n", configProperties, dynamicCatalogPath.get());
                         }
 
                         if (remoteFunctionServerUds.isPresent()) {

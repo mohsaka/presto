@@ -722,6 +722,8 @@ class SystemConfig : public ConfigBase {
   /// Optional string containing the path to the plugin directory
   static constexpr std::string_view kPluginDir{"plugin.dir"};
 
+  static constexpr std::string_view kDynamicCatalogPath{"dynamic-catalog-path"};
+
   /// Uses legacy version of array_agg which ignores nulls.
   static constexpr std::string_view kUseLegacyArrayAgg{
       "deprecated.legacy-array-agg"};
@@ -768,8 +770,8 @@ class SystemConfig : public ConfigBase {
   static constexpr std::string_view kCharNToVarcharImplicitCast{
     "char-n-to-varchar-implicit-cast"};
 
-  /// Enable BigintEnum and VarcharEnum types to be parsed and used in Velox. 
-  /// When set to false, BigintEnum or VarcharEnum types will throw an 
+  /// Enable BigintEnum and VarcharEnum types to be parsed and used in Velox.
+  /// When set to false, BigintEnum or VarcharEnum types will throw an
   //  unsupported error during type parsing.
   static constexpr std::string_view kEnumTypesEnabled{
     "enum-types-enabled"};
@@ -1056,6 +1058,8 @@ class SystemConfig : public ConfigBase {
   int requestDataSizesMaxWaitSec() const;
 
   std::string pluginDir() const;
+
+  std::string dynamicCatalogPath() const;
 
   int32_t exchangeIoEvbViolationThresholdMs() const;
 
