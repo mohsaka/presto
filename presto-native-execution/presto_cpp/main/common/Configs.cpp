@@ -265,6 +265,7 @@ SystemConfig::SystemConfig() {
           NUM_PROP(kExchangeIoEvbViolationThresholdMs, 1000),
           NUM_PROP(kHttpSrvIoEvbViolationThresholdMs, 1000),
           NUM_PROP(kMaxLocalExchangePartitionBufferSize, 65536),
+          STR_PROP(kDynamicCatalogPath, ""),
       };
 }
 
@@ -917,6 +918,10 @@ int32_t SystemConfig::httpSrvIoEvbViolationThresholdMs() const {
 
 uint64_t SystemConfig::maxLocalExchangePartitionBufferSize() const {
   return optionalProperty<uint64_t>(kMaxLocalExchangePartitionBufferSize).value();
+}
+
+std::string SystemConfig::dynamicCatalogPath() const {
+  return optionalProperty(kDynamicCatalogPath).value();
 }
 
 NodeConfig::NodeConfig() {
