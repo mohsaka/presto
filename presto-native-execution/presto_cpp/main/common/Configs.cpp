@@ -258,6 +258,7 @@ SystemConfig::SystemConfig() {
           NUM_PROP(kMaxSpillBytes, 100UL << 30), // 100GB
           NUM_PROP(kRequestDataSizesMaxWaitSec, 10),
           STR_PROP(kPluginDir, ""),
+          STR_PROP(kDynamicCatalogPath, ""),
           NUM_PROP(kExchangeIoEvbViolationThresholdMs, 1000),
           NUM_PROP(kHttpSrvIoEvbViolationThresholdMs, 1000),
           NUM_PROP(kMaxLocalExchangePartitionBufferSize, 65536),
@@ -914,6 +915,10 @@ std::string SystemConfig::prestoDefaultNamespacePrefix() const {
 
 std::string SystemConfig::pluginDir() const {
   return optionalProperty(kPluginDir).value();
+}
+
+std::string SystemConfig::dynamicCatalogPath() const {
+  return optionalProperty(kDynamicCatalogPath).value();
 }
 
 int32_t SystemConfig::exchangeIoEvbViolationThresholdMs() const {

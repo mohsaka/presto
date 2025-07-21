@@ -109,7 +109,26 @@ Announcer::Announcer(
           announcementRequest(address, port, nodeId, announcementBody_)) {}
 
 std::tuple<proxygen::HTTPMessage, std::string> Announcer::httpRequest() {
+  // There is a small chance that we may be announcing when we are
+  // updating the connectorIds. To prevent a race condition, add a mutex lock.
+  std::lock_guard<std::mutex> lock(announcementMutex_);
   return {announcementRequest_, announcementBody_};
+}
+
+void Announcer::updateConnectorIds(
+    const std::vector<std::string>* connectorIds) {
+  std::lock_guard<std::mutex> lock(announcementMutex_);
+
+  // Replace announcementBody's connectorIds list with the new one.
+  auto json = nlohmann::json::parse(announcementBody_);
+  json["services"][0]["properties"]["connectorIds"] =
+      folly::join(',', *connectorIds);
+  announcementBody_ = json.dump();
+
+  // Adjust HTTP_HEADER_CONTENT_LENGTH to account for the additional catalogs.
+  announcementRequest_.getHeaders().set(
+      proxygen::HTTP_HEADER_CONTENT_LENGTH,
+      std::to_string(announcementBody_.size()));
 }
 
 } // namespace facebook::presto

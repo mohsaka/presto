@@ -20,6 +20,7 @@
 #include <proxygen/httpserver/RequestHandlerFactory.h>
 #include <velox/exec/Task.h>
 #include <velox/expression/Expr.h>
+#include "CatalogRegisterer.h"
 #include "presto_cpp/main/CPUMon.h"
 #include "presto_cpp/main/CoordinatorDiscoverer.h"
 #include "presto_cpp/main/PeriodicHeartbeatManager.h"
@@ -314,6 +315,7 @@ class PrestoServer {
   std::string nodePoolType_;
   folly::SSLContextPtr sslContext_;
   std::string prestoBuiltinFunctionPrefix_;
+  CatalogRegisterer catalogRegisterer_;
 };
 
 } // namespace facebook::presto

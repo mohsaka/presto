@@ -24,6 +24,7 @@ target_link_libraries(presto_session_properties ${FOLLY_WITH_DEPENDENCIES})
 add_library(
   presto_server_lib
   Announcer.cpp
+  CatalogRegisterer.cpp
   CPUMon.cpp
   CoordinatorDiscoverer.cpp
   PeriodicMemoryChecker.cpp
