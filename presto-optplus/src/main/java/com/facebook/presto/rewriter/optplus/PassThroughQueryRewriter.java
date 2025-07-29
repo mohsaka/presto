@@ -28,7 +28,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.security.Principal;
-import java.util.List;
 
 import static com.facebook.presto.rewriter.optplus.OptPlusErrorCode.PASS_THROUGH_ERROR_CODE;
 import static com.facebook.presto.rewriter.password.PluginPasswordAuthenticator.ADMINISTRATOR_ROLE;
@@ -57,8 +56,8 @@ public final class PassThroughQueryRewriter
             }
             String rewrittenQuery;
             try {
-                List<List<Object>> queryResult = executeOptimizerPlus.callExecuteOptimizerPlus(queryRewriterInput.getQuery());
-                rewrittenQuery = RewriterUtils.generateValuesQuery(queryResult, executeOptimizerPlus.getColumns());
+                ParsedResultSet queryResult = executeOptimizerPlus.callExecuteOptimizerPlus(queryRewriterInput.getQuery());
+                rewrittenQuery = RewriterUtils.generateValuesQuery(queryResult.getResult(), queryResult.getColumns());
                 if (rewrittenQuery.length() > 1_000_000) {
                     throw new PrestoException(PASS_THROUGH_ERROR_CODE, "ExecuteOptimizerPlus query successfully executed on the optimizer plus instance but the result size" +
                             " is too large to stream");

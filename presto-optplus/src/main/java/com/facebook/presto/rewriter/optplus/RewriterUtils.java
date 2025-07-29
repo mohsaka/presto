@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.rewriter.optplus;
 
+import com.facebook.airlift.log.Logger;
 import com.facebook.presto.client.Column;
 import com.facebook.presto.common.type.CharType;
 import com.facebook.presto.common.type.DateType;
@@ -21,6 +22,7 @@ import com.facebook.presto.common.type.TimestampType;
 import com.facebook.presto.common.type.UuidType;
 import com.facebook.presto.common.type.VarbinaryType;
 import com.facebook.presto.common.type.VarcharType;
+import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -28,6 +30,8 @@ import java.util.stream.Collectors;
 public class RewriterUtils
 {
     private RewriterUtils() {}
+
+    private static final Logger log = Logger.get(RewriterUtils.class);
 
     private static final String varcharType = VarcharType.VARCHAR.getTypeSignature().toString();
     private static final String charType = CharType.createCharType(10).getTypeSignature().toString().replace("(10)", "");
@@ -77,6 +81,10 @@ public class RewriterUtils
                 }
             }
             sb.append("\")");
+        }
+        else {
+            log.warn("db2 output is improper column names hidden: \ncolumnSize in metadata: [%d] != columns", columnNames.size(), rows.get(0).size());
+            log.debug("Column names: [%s]", Joiner.on(",").join(columnNames));
         }
         sb.trimToSize();
         return sb.toString();

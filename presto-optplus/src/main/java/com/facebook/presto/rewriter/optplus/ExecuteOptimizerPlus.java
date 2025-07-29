@@ -41,9 +41,7 @@ public class ExecuteOptimizerPlus
 {
     private static final Logger log = Logger.get(ExecuteOptimizerPlus.class);
 
-    private List<Column> columns = new ArrayList<>();
-
-    public List<List<Object>> callExecuteOptimizerPlus(String execOptPlusQuery)
+    public ParsedResultSet callExecuteOptimizerPlus(String execOptPlusQuery)
             throws PrestoException
     {
         String query = parseOptPlusQuery(execOptPlusQuery);
@@ -71,9 +69,10 @@ public class ExecuteOptimizerPlus
         }
     }
 
-    private List<List<Object>> executeCallStatements(String query)
+    private ParsedResultSet executeCallStatements(String query)
             throws PrestoException
     {
+        List<Column> columns = new ArrayList<>();
         boolean isExplainFormat = query.toLowerCase(Locale.ENGLISH).contains("explain_format");
         boolean isSyncProcedures = query.toUpperCase(Locale.ENGLISH).contains("REGISTER_EXT_METASTORE") || query.toUpperCase(Locale.ENGLISH).contains("UNREGISTER_EXT_METASTORE") || query.toUpperCase(Locale.ENGLISH).contains("SET_EXT_METASTORE_PROPERTY");
         if (isExplainFormat) {
@@ -147,7 +146,7 @@ public class ExecuteOptimizerPlus
                 }
                 result = stmt.getMoreResults();
             }
-            return resultList;
+            return new ParsedResultSet(resultList, columns);
         }
         catch (NullPointerException e) {
             log.error(e, "OPT+ executeoptplus failed to connect to OPT+");
@@ -175,19 +174,21 @@ public class ExecuteOptimizerPlus
         }
     }
 
-    private List<List<Object>> disabledOptimizerPlugin(List<List<Object>> resultList)
+    private ParsedResultSet disabledOptimizerPlugin(List<List<Object>> resultList)
     {
+        List<Column> columns = new ArrayList<>();
         List<Object> row = new ArrayList<>();
         String status = "ExecuteWxdQueryOptimizer FAILED Query Optimizer not enabled in this environment";
         row.add(status);
         resultList.add(row);
         columns.add(new Column("result", VARCHAR));
-        return resultList;
+        return new ParsedResultSet(resultList, columns);
     }
 
-    private List<List<Object>> executeCallExplainFormat(String query)
+    private ParsedResultSet executeCallExplainFormat(String query)
     {
         List<List<Object>> resultList = new ArrayList<>();
+        List<Column> columns = new ArrayList<>();
         Connection conn = null;
         ResultSet rs = null;
         CallableStatement stmt = null;
@@ -220,7 +221,7 @@ public class ExecuteOptimizerPlus
             columns.add(new Column("Message", VARCHAR));
             log.debug("Return message: %s", returnMsg);
             resultList.add(ImmutableList.of(returnMsg));
-            return resultList;
+            return new ParsedResultSet(resultList, columns);
         }
         catch (NullPointerException e) {
             log.error("OPT+ executeoptplus failed to connect to wxd query optimizer", e);
@@ -248,9 +249,10 @@ public class ExecuteOptimizerPlus
         }
     }
 
-    private List<List<Object>> executeStatements(String query)
+    private ParsedResultSet executeStatements(String query)
     {
         List<List<Object>> resultList = new ArrayList<>();
+        List<Column> columns = new ArrayList<>();
         Connection conn = null;
         ResultSet rs = null;
         Statement stmt = null;
@@ -298,7 +300,7 @@ public class ExecuteOptimizerPlus
             }
             stmt.close();
             conn.close();
-            return resultList;
+            return new ParsedResultSet(resultList, columns);
         }
         catch (NullPointerException e) {
             log.error(e, "OPT+ executeoptplus failed to connect to wxd query optimizer");
@@ -332,10 +334,5 @@ public class ExecuteOptimizerPlus
                 log.error(e, "OPT+ executeoptplus error in closing");
             }
         }
-    }
-
-    public List<Column> getColumns()
-    {
-        return columns;
     }
 }

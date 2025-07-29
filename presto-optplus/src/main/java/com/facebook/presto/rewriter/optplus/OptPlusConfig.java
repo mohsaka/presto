@@ -15,6 +15,7 @@ package com.facebook.presto.rewriter.optplus;
 
 import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
+import com.facebook.airlift.configuration.ConfigSecuritySensitive;
 
 public final class OptPlusConfig
 {
@@ -48,6 +49,7 @@ public final class OptPlusConfig
     }
 
     @Config("optplus.password")
+    @ConfigSecuritySensitive
     public OptPlusConfig setOptplusPass(String optplusPass)
     {
         this.optplusPass = optplusPass;
@@ -124,6 +126,7 @@ public final class OptPlusConfig
 
     @Config("optplus.ssl.jdbc.trust_store_password")
     @ConfigDescription("Path to trust store password used for SSL.")
+    @ConfigSecuritySensitive
     public OptPlusConfig setSslTrustStorePassword(String sslTrustStorePassword)
     {
         this.sslTrustStorePassword = sslTrustStorePassword;
@@ -132,6 +135,7 @@ public final class OptPlusConfig
 
     @Config("optplus.db2.jdbc_url")
     @ConfigDescription("JDBC url to db2 OPT plus service.")
+    @ConfigSecuritySensitive
     public OptPlusConfig setDb2JdbcUrl(String db2JdbcUrl)
     {
         this.db2JdbcUrl = db2JdbcUrl;

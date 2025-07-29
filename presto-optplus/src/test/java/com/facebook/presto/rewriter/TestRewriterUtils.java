@@ -37,19 +37,6 @@ import static org.testng.Assert.assertEquals;
 public class TestRewriterUtils
 {
     @Test
-    public void testGeneratedValuesQueryWithEmptyRows()
-    {
-        List<List<Object>> rows = new ArrayList<>();
-        ArrayList<Object> row = new ArrayList<>();
-        rows.add(row);
-
-        String expected = "SELECT 0 LIMIT 0";
-        List<Column> columns = unmodifiableList(asList(new Column("col1", VarcharType.VARCHAR),
-                new Column("col2", VarcharType.VARCHAR)));
-        assertEquals(RewriterUtils.generateValuesQuery(rows, columns), expected);
-    }
-
-    @Test
     public void testGeneratedValuesQueryWithQuotes()
     {
         List<List<Object>> rows = new ArrayList<>();
@@ -107,6 +94,13 @@ public class TestRewriterUtils
     {
         String expected = "SELECT 0 LIMIT 0";
         assertEquals(RewriterUtils.generateValuesQuery(emptyList(), emptyList()), expected);
+        // empty rows check.
+        List<List<Object>> rows = new ArrayList<>();
+        ArrayList<Object> row = new ArrayList<>();
+        rows.add(row);
+        List<Column> columns = unmodifiableList(asList(new Column("col1", VarcharType.VARCHAR),
+                new Column("col2", VarcharType.VARCHAR)));
+        assertEquals(RewriterUtils.generateValuesQuery(rows, columns), expected);
     }
 
     @Test

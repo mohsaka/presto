@@ -97,7 +97,8 @@ public class OptimizerGuidelineUtil
         try {
             String connectionString = oaasUrl.replaceAll("^\"|\"$", "");
             if (showOptimizedQuery) {
-                log.debug("OPT+ connect pool connectionString %s", connectionString);
+                log.debug("OPT+ connect pool connection string %s", connectionString
+                        .replaceFirst("password=[^;]+", "password=[REDACTED]"));
             }
             String withoutPrefix = connectionString.substring("jdbc:db2://".length());
             String[] parts = withoutPrefix.split(":");
@@ -123,7 +124,9 @@ public class OptimizerGuidelineUtil
             if (props.containsKey("password")) {
                 String password = props.get("password");
                 log.debug("Password is set");
-
+                if (password.isBlank()) {
+                    log.warn("db2 password is set as empty");
+                }
                 dataSource.setPassword(password);
             }
             if (props.containsKey("sslConnection")) {
