@@ -32,6 +32,7 @@ optplus.enable_fallback=true
 optplus.ssl.jdbc.enable=false
 optplus.db2.jdbc_url=jdbc:db2://dummy.ibm.com:12333/dml:user=?;password=?;
 optplus.show-rewritten-query=false
+optplus.enabled-connectors=com.facebook.presto.hive.HiveConnector,..
 ```
 if JDBC SSL is enabled.
 
@@ -47,6 +48,7 @@ optplus.ssl.jdbc.trust_store_password=<pass>
 optplus.ssl.jdbc.trust_store_path=<path to truststore>
 optplus.username=user
 optplus.password=pass
+optplus.enabled-connectors=com.facebook.presto.hive.HiveConnector,...
 ```
 
 Step 4. Set session variables
@@ -74,7 +76,9 @@ Create `etc/query-rewriter.properties`
     Now we use a user that by-passes AMS, this is important as AMS can introduce its performance bottleneck. How to 
     get the user differs slightly for saas and cpd.
 9. `query-rewriter.name=name` this must exist, as there is a check in presto to check for its existence.
-   
+10. `optplus.enabled-connectors=com.facebook.presto.hive.HiveConnector,...`
+    Comma-separated list of connectors enabled for OPT+ rewrite by the optplus plugin.
+
 If the optmizer plus support needs to be enabled by default, then this session flag needs to be enabled
 ```
 is_query_rewriter_plugin_enabled=true;
@@ -95,6 +99,8 @@ First update the properties file
 db2.jdbc_url=jdbc:db2://loud30.almaden.ibm.com:?/dml:user=?;password=?;
 db2.tpch_schema=TPCH_SF10000_DEFAULTS
 db2.tpch_catalog=iceberg
+# Comma-separated list of connectors enabled for OPT+ rewrite by the optplus plugin.
+db2.enabledConnectors=com.facebook.presto.hive.HiveConnector
 # hive test data with tpch tables is generated here.
 test.data_dir=/tmp/data
 test.generate_result_files=false

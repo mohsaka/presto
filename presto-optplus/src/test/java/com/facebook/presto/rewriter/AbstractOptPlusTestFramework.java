@@ -115,6 +115,7 @@ public abstract class AbstractOptPlusTestFramework
                 .put("optplus.show-rewritten-query", "true")
                 .put("optplus.username", PRESTO_USER)
                 .put("optplus.password", PRESTO_PASS)
+                .put("optplus.enabled-connectors", getEnabledConnectors())
                 .build();
     }
 
@@ -149,6 +150,10 @@ public abstract class AbstractOptPlusTestFramework
     protected boolean getTestEraseDataDir()
     {
         return Boolean.parseBoolean(requireNonNull(System.getProperty("test.erase_data_dir"), "system property test.erase_data_dir is required"));
+    }
+    protected String getEnabledConnectors()
+    {
+        return System.getProperty("db2.enabledConnectors", "");
     }
 
     @DataProvider

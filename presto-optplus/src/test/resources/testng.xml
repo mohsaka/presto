@@ -7,6 +7,7 @@
     <parameter name="testDataDir" value="${test.data_dir}" />
     <parameter name="testGenerateResultFiles" value="${test.generate_result_files}" />
     <parameter name="testEraseDataDir" value="${test.erase_data_dir}" />
+    <parameter name="db2EnabledConnectors" value="${db2.enabledConnectors}" />
     <test name="Integration Tests">
         <classes>
             <class name="com.facebook.presto.rewriter.TestOptPlusFallbackMechanism" />

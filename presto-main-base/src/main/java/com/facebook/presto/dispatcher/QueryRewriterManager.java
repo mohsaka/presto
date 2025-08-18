@@ -37,10 +37,13 @@ import com.google.inject.Inject;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.facebook.presto.SystemSessionProperties.IS_QUERY_REWRITER_PLUGIN_ENABLED;
@@ -66,6 +69,7 @@ public class QueryRewriterManager
     private static final Logger log = Logger.get(QueryRewriterManager.class);
     private static final File CONFIG_FILE = new File("etc/query-rewriter.properties");
     private static final String NAME_PROPERTY = "query-rewriter.name";
+    private Map<String, String> properties = new HashMap<>();
 
     private final AtomicReference<Optional<QueryRewriterProviderFactory>> providerFactory = new AtomicReference<>(Optional.empty());
     private final AtomicReference<Optional<QueryRewriterProvider>> provider = new AtomicReference<>(Optional.empty());
@@ -103,7 +107,7 @@ public class QueryRewriterManager
         Optional<QueryRewriterProviderFactory> queryRewriterProviderFactory = providerFactory.get();
         if (queryRewriterProviderFactory.isPresent()) {
             log.info("-- Loading query rewriter --");
-            Map<String, String> properties = ImmutableMap.copyOf(config);
+            properties = ImmutableMap.copyOf(config);
             if (properties.isEmpty()) {
                 try {
                     File configFileLocation = CONFIG_FILE.getAbsoluteFile();
@@ -140,10 +144,18 @@ public class QueryRewriterManager
         if (getQueryRewriterProvider().isPresent()) {
             // TODO: Revisit how we discover which catalogs have Opt+ enabled - https://github.ibm.com/lakehouse/tracker/issues/22358
             List<Catalog> catalogNames = catalogManager.getCatalogs();
+            // Store the supported connectors
+            Set<String> connectorsList = Optional.ofNullable(properties.get("optplus.enabled-connectors"))
+                    .filter(s -> !s.isEmpty())
+                    .map(s -> new HashSet<>(Arrays.asList(s.split("\\s*,\\s*"))))
+                    .orElseGet(HashSet::new);
+
             for (Catalog catalog : catalogNames) {
                 Connector connector = catalog.getConnector(catalog.getConnectorId());
                 String connectorType = connector.getClass().getName();
-                if (connectorType.startsWith("com.facebook.presto.hive") || connectorType.startsWith("com.facebook.presto.iceberg")) {
+                if (connectorType.startsWith("com.facebook.presto.hive")
+                        || connectorType.startsWith("com.facebook.presto.iceberg")
+                        || connectorsList.contains(connectorType)) {
                     enabledCatalogsSetBuilder.add(catalog.getCatalogName());
                 }
             }

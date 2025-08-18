@@ -142,14 +142,14 @@ public final class OptplusQueryRewriter
             String queryId,
             Optional<String> sessionSchema,
             Optional<String> sessionCatalog,
-            Set<String> hiveCatalogs,
+            Set<String> catalogs,
             String originalQuery,
             Map<String, String> sessionProperties)
     {
         RuntimeStats runtimeStats = new RuntimeStats();
         String rewrittenQuery = null;
         String lowerOriginalQuery = originalQuery.toLowerCase(Locale.ENGLISH);
-        if (!lowerOriginalQuery.contains("select") || lowerOriginalQuery.contains("optguideline") || !checkIsOptplusEnabledCatalog(hiveCatalogs, sessionCatalog, originalQuery)) {
+        if (!lowerOriginalQuery.contains("select") || lowerOriginalQuery.contains("optguideline") || !checkIsOptplusEnabledCatalog(catalogs, sessionCatalog, originalQuery)) {
             log.info("OPT+ skipping not a select statement or information_schema or session set to false");
             return Optional.empty();
         }
@@ -190,10 +190,18 @@ public final class OptplusQueryRewriter
                     rs = stmt.executeQuery("VALUES prestosql ( '" + query + " ' , '" + catalog + "', '" + schema + "', " + isMaterializedViewEnabled + ")");
                 }
                 else {
-                    rs = stmt.executeQuery("VALUES prestosql ( '" + query + " ' , '" + catalog + "', '" + schema + "')");
+                    rs = stmt.executeQuery(String.format(
+                            "VALUES prestosql('%s', %s, %s)",
+                            query,
+                            (catalog == null || catalog.isEmpty()) ? null : "'" + catalog + "'",
+                            (schema == null || schema.isEmpty()) ? null : "'" + schema + "'"));
                 }
                 rs.next();
                 wqQryStmt = rs.getString(1);
+                // If the GFS connector is enabled, Updating the query to reference the GFS system catalog
+                if (config.getEnabledConnectors().contains("com.facebook.presto.plugin.gfs.GFSConnector")) {
+                    wqQryStmt = replaceQpQuery(wqQryStmt);
+                }
                 log.info("OPT+ Time taken for optimizer DB2 call and return %d millisec", (System.currentTimeMillis() - startTime));
                 return wqQryStmt;
             }
@@ -244,15 +252,20 @@ public final class OptplusQueryRewriter
         return null;
     }
 
-    private boolean checkIsOptplusEnabledCatalog(Set<String> hiveCatalogs, Optional<String> sessionCatalog, String query)
+    private boolean checkIsOptplusEnabledCatalog(Set<String> catalogs, Optional<String> sessionCatalog, String query)
     {
         // TODO: unaddressed problems
         // Problem 1. How to get, what are the catalogs for which OPT+ is enabled.
         // https://github.ibm.com/lakehouse/tracker/issues/22358
         // Problem 2. If session catalog is not defined, how to determine which catalog this query is for.
-        // In current approach (i.e. in lakehouse/presto) a simple string search `hiveCatalogs.stream().anyMatch(query::contains)`
+        // In current approach (i.e. in lakehouse/presto) a simple string search `catalogs.stream().anyMatch(query::contains)`
         // is performed which can lead to lot of spurious results. for example a catalog names like: mysqlIceberg can match with another
         // catalog Iceberg.
-        return (sessionCatalog.isPresent() && hiveCatalogs.contains(sessionCatalog.get())) || hiveCatalogs.stream().anyMatch(query::contains);
+        return (sessionCatalog.isPresent() && catalogs.contains(sessionCatalog.get())) || catalogs.stream().anyMatch(query::contains);
+    }
+
+    private String replaceQpQuery(String sql)
+    {
+        return sql.replaceAll("(?i)(?<=^|\\s)QP_QUERY(?=\\s*\\()", "gfs_system_catalog.system.QP_QUERY");
     }
 }

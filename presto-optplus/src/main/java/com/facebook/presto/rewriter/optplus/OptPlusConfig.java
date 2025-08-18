@@ -17,12 +17,16 @@ import com.facebook.airlift.configuration.Config;
 import com.facebook.airlift.configuration.ConfigDescription;
 import com.facebook.airlift.configuration.ConfigSecuritySensitive;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
 public final class OptPlusConfig
 {
     private String db2JdbcUrl;
     private String coordinatorHost;
     private int coordinatorPort;
-    private boolean enableFallback;
+    private boolean enableFallback = true;
     private String sslTrustStorePath;
     private String sslTrustStorePassword;
     private boolean enableJDBCSSL;
@@ -30,6 +34,7 @@ public final class OptPlusConfig
     private boolean enableMaterializedView;
     private String optplusUser;
     private String optplusPass;
+    private Set<String> enabledConnectors;
 
     public String getOptplusUser()
     {
@@ -170,6 +175,19 @@ public final class OptPlusConfig
     public OptPlusConfig setCoordinatorPort(int coordinatorPort)
     {
         this.coordinatorPort = coordinatorPort;
+        return this;
+    }
+
+    public Set<String> getEnabledConnectors()
+    {
+        return enabledConnectors;
+    }
+
+    @Config("optplus.enabled-connectors")
+    @ConfigDescription("Comma-separated list of connectors enabled for OPT+ rewrite by the optplus plugin. All the catalogs of the enabled connector(s) are enabled for OPT+ query rewrite.")
+    public OptPlusConfig setEnabledConnectors(String connectors)
+    {
+        this.enabledConnectors = new HashSet<>(Arrays.asList(connectors.split("\\s*,\\s*")));
         return this;
     }
 }
