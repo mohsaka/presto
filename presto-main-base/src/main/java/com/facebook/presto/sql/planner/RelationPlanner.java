@@ -343,6 +343,10 @@ class RelationPlanner
                     }
                 }
             }
+            List<VariableReferenceExpression> requiredColumns = functionAnalysis.getRequiredColumns().get(tableArgument.getArgumentName()).stream()
+                    .map(sourcePlan::getVariable)
+                    .collect(toImmutableList());
+
             Optional<DataOrganizationSpecification> specification = Optional.empty();
 
             // if the table argument has set semantics, create Specification
@@ -372,10 +376,10 @@ class RelationPlanner
             sources.add(sourcePlanBuilder.getRoot());
             sourceProperties.add(new TableArgumentProperties(
                     tableArgument.getArgumentName(),
-                    columnMapping.build(),
                     tableArgument.isRowSemantics(),
                     tableArgument.isPruneWhenEmpty(),
                     tableArgument.isPassThroughColumns(),
+                    requiredColumns,
                     specification));
 
             // add output symbols passed from the table argument

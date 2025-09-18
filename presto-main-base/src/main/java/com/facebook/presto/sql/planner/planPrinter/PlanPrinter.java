@@ -1413,6 +1413,9 @@ public class PlanPrinter
                 properties.add(specificationBuilder.toString());
             });
 
+            properties.add("required columns: [" +
+                    Joiner.on(", ").join(argumentProperties.getRequiredColumns()) + "]");
+
             if (argumentProperties.isPruneWhenEmpty()) {
                 properties.add("prune when empty");
             }
