@@ -75,6 +75,9 @@ import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
@@ -83,7 +86,6 @@ import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
@@ -494,7 +496,7 @@ public class UnaliasSymbolReferences
                     .collect(toImmutableList());
 
             ImmutableList.Builder<PlanNode> newSources = ImmutableList.builder();
-            ImmutableList.Builder<TableFunctionNode.TableArgumentProperties> newTableArgumentProperties = ImmutableList.builder();
+            ImmutableList.Builder<TableArgumentProperties> newTableArgumentProperties = ImmutableList.builder();
 
             for (int i = 0; i < node.getSources().size(); i++) {
                 PlanNode newSource = node.getSources().get(i).accept(this, context);
@@ -502,18 +504,24 @@ public class UnaliasSymbolReferences
 
                 SymbolMapper inputMapper = new SymbolMapper(new HashMap<>(), warningCollector);
 
-                TableFunctionNode.TableArgumentProperties properties = node.getTableArgumentProperties().get(i);
+                TableArgumentProperties properties = node.getTableArgumentProperties().get(i);
 
                 Optional<DataOrganizationSpecification> newSpecification = properties.getSpecification().map(inputMapper::mapAndDistinct);
-                ImmutableMultimap.Builder<String, VariableReferenceExpression> newColumnMapping = ImmutableMultimap.builder();
-                properties.getColumnMapping().entries().stream()
-                        .forEach(entry -> newColumnMapping.put(entry.getKey(), inputMapper.map(entry.getValue())));
-                newTableArgumentProperties.add(new TableFunctionNode.TableArgumentProperties(
+
+                PassThroughSpecification newPassThroughSpecification = new PassThroughSpecification(
+                        properties.getPassThroughSpecification().isDeclaredAsPassThrough(),
+                        properties.getPassThroughSpecification().getColumns().stream()
+                                .map(column -> new PassThroughColumn(
+                                        inputMapper.map(column.getOutputVariables()),
+                                        column.isPartitioningColumn()))
+                                .collect(toImmutableList()));
+
+                newTableArgumentProperties.add(new TableArgumentProperties(
                         properties.getArgumentName(),
-                        newColumnMapping.build(),
                         properties.isRowSemantics(),
                         properties.isPruneWhenEmpty(),
-                        properties.isPassThroughColumns(),
+                        newPassThroughSpecification,
+                        inputMapper.map(properties.getRequiredColumns()),
                         newSpecification));
             }
 

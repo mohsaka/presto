@@ -115,7 +115,6 @@ import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
 import static com.facebook.presto.sql.NodeUtils.getSortItemsFromOrderBy;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.isNumericType;
 import static com.facebook.presto.sql.analyzer.ExpressionTreeUtils.getSourceLocation;
-import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static com.facebook.presto.sql.planner.OrderingTranslator.sortItemToSortOrder;
 import static com.facebook.presto.sql.planner.PlannerUtils.newVariable;
 import static com.facebook.presto.sql.planner.PlannerUtils.toOrderingScheme;
@@ -145,7 +144,7 @@ import static com.google.common.collect.Streams.stream;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
-class QueryPlanner
+public class QueryPlanner
 {
     private final Analysis analysis;
     private final VariableAllocator variableAllocator;
@@ -1376,6 +1375,11 @@ class QueryPlanner
                         variable.getSourceLocation().map(location -> new NodeLocation(location.getLine(), location.getColumn())),
                         variable.getName()))
                 .collect(toImmutableList());
+    }
+
+    public static SymbolReference toSymbolReference(VariableReferenceExpression variable)
+    {
+        return new SymbolReference(variable.getSourceLocation().map(location -> new NodeLocation(location.getLine(), location.getColumn())), variable.getName());
     }
 
     public static class PlanAndMappings

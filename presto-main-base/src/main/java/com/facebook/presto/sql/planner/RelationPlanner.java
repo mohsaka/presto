@@ -59,6 +59,8 @@ import com.facebook.presto.sql.planner.optimizations.SampleNodeUtil;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
 import com.facebook.presto.sql.tree.AliasedRelation;
 import com.facebook.presto.sql.tree.Cast;
@@ -98,6 +100,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.UnmodifiableIterator;
@@ -343,6 +346,10 @@ class RelationPlanner
                     }
                 }
             }
+            List<VariableReferenceExpression> requiredColumns = functionAnalysis.getRequiredColumns().get(tableArgument.getArgumentName()).stream()
+                    .map(sourcePlan::getVariable)
+                    .collect(toImmutableList());
+
             Optional<DataOrganizationSpecification> specification = Optional.empty();
 
             // if the table argument has set semantics, create Specification
@@ -370,26 +377,38 @@ class RelationPlanner
             }
 
             sources.add(sourcePlanBuilder.getRoot());
-            sourceProperties.add(new TableArgumentProperties(
-                    tableArgument.getArgumentName(),
-                    columnMapping.build(),
-                    tableArgument.isRowSemantics(),
-                    tableArgument.isPruneWhenEmpty(),
-                    tableArgument.isPassThroughColumns(),
-                    specification));
 
             // add output symbols passed from the table argument
+            ImmutableList.Builder<PassThroughColumn> passThroughColumns = ImmutableList.builder();
             if (tableArgument.isPassThroughColumns()) {
                 // the original output symbols from the source node, not coerced
                 // note: hidden columns are included. They are present in sourcePlan.fieldMappings
                 outputVariables.addAll(sourcePlan.getFieldMappings());
+                Set<VariableReferenceExpression> partitionBy = specification
+                        .map(DataOrganizationSpecification::getPartitionBy)
+                        .map(ImmutableSet::copyOf)
+                        .orElse(ImmutableSet.of());
+                sourcePlan.getFieldMappings().stream()
+                        .map(variable -> new PassThroughColumn(variable, partitionBy.contains(variable)))
+                        .forEach(passThroughColumns::add);
             }
             else if (tableArgument.getPartitionBy().isPresent()) {
                 tableArgument.getPartitionBy().get().stream()
                         // the original symbols for partitioning columns, not coerced
                         .map(sourcePlanBuilder::translate)
-                        .forEach(outputVariables::add);
+                        .forEach(variable -> {
+                            outputVariables.add(variable);
+                            passThroughColumns.add(new PassThroughColumn(variable, true));
+                        });
             }
+            sources.add(sourcePlanBuilder.getRoot());
+            sourceProperties.add(new TableArgumentProperties(
+                    tableArgument.getArgumentName(),
+                    tableArgument.isRowSemantics(),
+                    tableArgument.isPruneWhenEmpty(),
+                    new PassThroughSpecification(tableArgument.isPassThroughColumns(), passThroughColumns.build()),
+                    requiredColumns,
+                    specification));
         }
 
         PlanNode root = new TableFunctionNode(

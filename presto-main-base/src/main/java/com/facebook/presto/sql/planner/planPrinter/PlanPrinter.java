@@ -1413,11 +1413,14 @@ public class PlanPrinter
                 properties.add(specificationBuilder.toString());
             });
 
+            properties.add("required columns: [" +
+                    Joiner.on(", ").join(argumentProperties.getRequiredColumns()) + "]");
+
             if (argumentProperties.isPruneWhenEmpty()) {
                 properties.add("prune when empty");
             }
 
-            if (argumentProperties.isPassThroughColumns()) {
+            if (argumentProperties.getPassThroughSpecification().isDeclaredAsPassThrough()) {
                 properties.add("pass through columns");
             }
 

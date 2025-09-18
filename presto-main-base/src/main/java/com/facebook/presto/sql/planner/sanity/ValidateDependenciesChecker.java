@@ -70,6 +70,7 @@ import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
@@ -128,10 +129,10 @@ public final class ValidateDependenciesChecker
 
                 checkDependencies(
                         inputs,
-                        argumentProperties.getColumnMapping().values(),
-                        "Invalid node. Input symbols from source %s (%s) not in source plan output (%s)",
+                        argumentProperties.getRequiredColumns(),
+                        "Invalid node. Required input symbols from source %s (%s) not in source plan output (%s)",
                         argumentProperties.getArgumentName(),
-                        argumentProperties.getColumnMapping().values(),
+                        argumentProperties.getRequiredColumns(),
                         source.getOutputVariables());
                 argumentProperties.getSpecification().ifPresent(specification -> {
                     checkDependencies(
@@ -151,6 +152,16 @@ public final class ValidateDependenciesChecker
                                 source.getOutputVariables());
                     });
                 });
+                Set<VariableReferenceExpression> passThroughVariable = argumentProperties.getPassThroughSpecification().getColumns().stream()
+                        .map(PassThroughColumn::getOutputVariables)
+                        .collect(toImmutableSet());
+                checkDependencies(
+                        inputs,
+                        passThroughVariable,
+                        "Invalid node. Pass-through symbols for source %s (%s) not in source plan output (%s)",
+                        argumentProperties.getArgumentName(),
+                        passThroughVariable,
+                        source.getOutputVariables());
             }
             return null;
         }
