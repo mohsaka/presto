@@ -83,6 +83,7 @@ import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
@@ -481,15 +482,49 @@ public class UnaliasSymbolReferences
         @Override
         public PlanNode visitTableFunction(TableFunctionNode node, RewriteContext<Void> context)
         {
+            Map<VariableReferenceExpression, VariableReferenceExpression> mappings =
+                    Optional.ofNullable(context.get())
+                            .map(c -> new HashMap<VariableReferenceExpression, VariableReferenceExpression>())
+                            .orElseGet(HashMap::new);
+
+            SymbolMapper mapper = new SymbolMapper(mappings, warningCollector);
+
+            List<VariableReferenceExpression> newProperOutputs = node.getOutputVariables().stream()
+                    .map(mapper::map)
+                    .collect(toImmutableList());
+
+            ImmutableList.Builder<PlanNode> newSources = ImmutableList.builder();
+            ImmutableList.Builder<TableFunctionNode.TableArgumentProperties> newTableArgumentProperties = ImmutableList.builder();
+
+            for (int i = 0; i < node.getSources().size(); i++) {
+                PlanNode newSource = node.getSources().get(i).accept(this, context);
+                newSources.add(newSource);
+
+                SymbolMapper inputMapper = new SymbolMapper(new HashMap<>(), warningCollector);
+
+                TableFunctionNode.TableArgumentProperties properties = node.getTableArgumentProperties().get(i);
+
+                Optional<DataOrganizationSpecification> newSpecification = properties.getSpecification().map(inputMapper::mapAndDistinct);
+                ImmutableMultimap.Builder<String, VariableReferenceExpression> newColumnMapping = ImmutableMultimap.builder();
+                properties.getColumnMapping().entries().stream()
+                        .forEach(entry -> newColumnMapping.put(entry.getKey(), inputMapper.map(entry.getValue())));
+                newTableArgumentProperties.add(new TableFunctionNode.TableArgumentProperties(
+                        properties.getArgumentName(),
+                        newColumnMapping.build(),
+                        properties.isRowSemantics(),
+                        properties.isPruneWhenEmpty(),
+                        properties.isPassThroughColumns(),
+                        newSpecification));
+            }
+
             return new TableFunctionNode(
-                    node.getSourceLocation(),
                     node.getId(),
-                    Optional.empty(),
                     node.getName(),
                     node.getArguments(),
-                    node.getOutputVariables(),
-                    node.getSources(),
-                    node.getTableArgumentProperties(),
+                    newProperOutputs,
+                    newSources.build(),
+                    newTableArgumentProperties.build(),
+                    node.getCopartitioningLists(),
                     node.getHandle());
         }
 
