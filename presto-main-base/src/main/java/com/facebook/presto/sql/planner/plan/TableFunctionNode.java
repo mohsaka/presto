@@ -172,26 +172,26 @@ public class TableFunctionNode
     public static class TableArgumentProperties
     {
         private final String argumentName;
-        private final Multimap<String, VariableReferenceExpression> columnMapping;
         private final boolean rowSemantics;
         private final boolean pruneWhenEmpty;
         private final boolean passThroughColumns;
+        private final List<VariableReferenceExpression> requiredColumns;
         private final Optional<DataOrganizationSpecification> specification;
 
         @JsonCreator
         public TableArgumentProperties(
                 @JsonProperty("argumentName") String argumentName,
-                @JsonProperty("columnMapping") Multimap<String, VariableReferenceExpression> columnMapping,
                 @JsonProperty("rowSemantics") boolean rowSemantics,
                 @JsonProperty("pruneWhenEmpty") boolean pruneWhenEmpty,
                 @JsonProperty("passThroughColumns") boolean passThroughColumns,
+                @JsonProperty("requiredColumns") List<VariableReferenceExpression> requiredColumns,
                 @JsonProperty("specification") Optional<DataOrganizationSpecification> specification)
         {
             this.argumentName = requireNonNull(argumentName, "argumentName is null");
-            this.columnMapping = ImmutableMultimap.copyOf(columnMapping);
             this.rowSemantics = rowSemantics;
             this.pruneWhenEmpty = pruneWhenEmpty;
             this.passThroughColumns = passThroughColumns;
+            this.requiredColumns = ImmutableList.copyOf(requiredColumns);
             this.specification = requireNonNull(specification, "specification is null");
         }
 
@@ -199,12 +199,6 @@ public class TableFunctionNode
         public String getArgumentName()
         {
             return argumentName;
-        }
-
-        @JsonProperty
-        public Multimap<String, VariableReferenceExpression> getColumnMapping()
-        {
-            return columnMapping;
         }
 
         @JsonProperty
@@ -223,6 +217,12 @@ public class TableFunctionNode
         public boolean isPassThroughColumns()
         {
             return passThroughColumns;
+        }
+
+        @JsonProperty
+        public List<VariableReferenceExpression> getRequiredColumns()
+        {
+            return requiredColumns;
         }
 
         @JsonProperty

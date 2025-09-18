@@ -505,15 +505,12 @@ public class UnaliasSymbolReferences
                 TableFunctionNode.TableArgumentProperties properties = node.getTableArgumentProperties().get(i);
 
                 Optional<DataOrganizationSpecification> newSpecification = properties.getSpecification().map(inputMapper::mapAndDistinct);
-                ImmutableMultimap.Builder<String, VariableReferenceExpression> newColumnMapping = ImmutableMultimap.builder();
-                properties.getColumnMapping().entries().stream()
-                        .forEach(entry -> newColumnMapping.put(entry.getKey(), inputMapper.map(entry.getValue())));
                 newTableArgumentProperties.add(new TableFunctionNode.TableArgumentProperties(
                         properties.getArgumentName(),
-                        newColumnMapping.build(),
                         properties.isRowSemantics(),
                         properties.isPruneWhenEmpty(),
                         properties.isPassThroughColumns(),
+                        inputMapper.map(properties.getRequiredColumns()),
                         newSpecification));
             }
 
