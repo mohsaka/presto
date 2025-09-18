@@ -109,6 +109,10 @@ import com.facebook.presto.sql.tree.LikeClause;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
+import com.facebook.presto.sql.tree.Merge;
+import com.facebook.presto.sql.tree.MergeCase;
+import com.facebook.presto.sql.tree.MergeInsert;
+import com.facebook.presto.sql.tree.MergeUpdate;
 import com.facebook.presto.sql.tree.NaturalJoin;
 import com.facebook.presto.sql.tree.Node;
 import com.facebook.presto.sql.tree.NodeLocation;
@@ -421,7 +425,7 @@ class AstBuilder
         return new RefreshMaterializedView(
                 getLocation(context),
                 new Table(getLocation(context), getQualifiedName(context.qualifiedName())),
-                (Expression) visit(context.booleanExpression()));
+                visitIfPresent(context.booleanExpression(), Expression.class));
     }
 
     @Override
@@ -467,6 +471,51 @@ class AstBuilder
     public Node visitTruncateTable(SqlBaseParser.TruncateTableContext context)
     {
         return new TruncateTable(getLocation(context), getQualifiedName(context.qualifiedName()));
+    }
+
+    @Override
+    public Node visitMergeInto(SqlBaseParser.MergeIntoContext context)
+    {
+        Table table = new Table(getLocation(context), getQualifiedName(context.qualifiedName()));
+        Relation targetRelation = table;
+        if (context.identifier() != null) {
+            targetRelation = new AliasedRelation(table, (Identifier) visit(context.identifier()), null);
+        }
+        return new Merge(
+                getLocation(context),
+                targetRelation,
+                (Relation) visit(context.relation()),
+                (Expression) visit(context.expression()),
+                visit(context.mergeCase(), MergeCase.class));
+    }
+
+    @Override
+    public Node visitMergeInsert(SqlBaseParser.MergeInsertContext context)
+    {
+        return new MergeInsert(
+                getLocation(context),
+                visitIdentifiers(context.columns),
+                visit(context.values, Expression.class));
+    }
+
+    private List<Identifier> visitIdentifiers(List<SqlBaseParser.IdentifierContext> identifiers)
+    {
+        return identifiers.stream()
+                .map(identifier -> (Identifier) visit(identifier))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public Node visitMergeUpdate(SqlBaseParser.MergeUpdateContext context)
+    {
+        ImmutableList.Builder<MergeUpdate.Assignment> assignments = ImmutableList.builder();
+        for (int i = 0; i < context.targetColumns.size(); i++) {
+            assignments.add(new MergeUpdate.Assignment(
+                    (Identifier) visit(context.targetColumns.get(i)),
+                    (Expression) visit(context.values.get(i))));
+        }
+
+        return new MergeUpdate(getLocation(context), assignments.build());
     }
 
     @Override
@@ -1572,6 +1621,9 @@ class AstBuilder
 
         if (context.identifier() != null) {
             Identifier alias = (Identifier) visit(context.identifier());
+            if (context.AS() == null) {
+                validateArgumentAlias(alias, context.identifier());
+            }
             List<Identifier> columnNames = null;
             if (context.columnAliases() != null) {
                 columnNames = visit(context.columnAliases().identifier(), Identifier.class);
@@ -1589,6 +1641,9 @@ class AstBuilder
 
         if (context.identifier() != null) {
             Identifier alias = (Identifier) visit(context.identifier());
+            if (context.AS() == null) {
+                validateArgumentAlias(alias, context.identifier());
+            }
             List<Identifier> columnNames = null;
             if (context.columnAliases() != null) {
                 columnNames = visit(context.columnAliases().identifier(), Identifier.class);
@@ -1612,7 +1667,34 @@ class AstBuilder
     @Override
     public Node visitDescriptorField(SqlBaseParser.DescriptorFieldContext context)
     {
-        return new DescriptorField(getLocation(context), (Identifier) visit(context.identifier()), Optional.of(getType(context.type())));
+        return new DescriptorField(getLocation(context), (Identifier) visit(context.identifier()), Optional.ofNullable(context.type()).map(this::getType));
+    }
+
+    /**
+     * Validates whether an argument alias in a table function invocation is valid,
+     * specifically checking for ambiguity with the keyword COPARTITION.
+     *
+     * The word COPARTITION is specific to table function invocations and is not
+     * a reserved SQL keyword. However, in certain contexts, such as within a table function
+     * call, it can be ambiguously interpreted as either:
+     *
+     *   A table argument alias (e.g., {input_4 => TABLE(...) COPARTITION})
+     *   Or the start of a COPARTITION clause (e.g., {COPARTITION (t2, t3)})
+     *
+     * To prevent this ambiguity, queries that use COPARTITION as an argument alias
+     * are rejected unless the alias is explicitly delimited or preceded by AS.
+     *
+     * This approach preserves COPARTITION as a non-reserved word that can still be
+     * used as an identifier in other SQL contexts.
+     */
+    private static void validateArgumentAlias(Identifier alias, ParserRuleContext context)
+    {
+        check(
+                alias.isDelimited() || !alias.getValue().equalsIgnoreCase("COPARTITION"),
+                "The word \"COPARTITION\" is ambiguous in this context. " +
+                        "To alias an argument, precede the alias with \"AS\". " +
+                        "To specify co-partitioning, change the argument order so that the last argument cannot be aliased.",
+                context);
     }
 
     @Override
