@@ -86,8 +86,8 @@ import java.util.Set;
 import static com.facebook.presto.spi.plan.JoinNode.checkLeftOutputVariablesBeforeRight;
 import static com.facebook.presto.sql.planner.optimizations.AggregationNodeUtils.extractAggregationUniqueVariables;
 import static com.facebook.presto.sql.planner.optimizations.IndexJoinOptimizer.IndexKeyTracer;
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 /**

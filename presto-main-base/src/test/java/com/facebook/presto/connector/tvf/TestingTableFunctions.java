@@ -515,6 +515,7 @@ public class TestingTableFunctions
                     ImmutableList.of(
                             TableArgumentSpecification.builder()
                                     .name("INPUT")
+                                    .keepWhenEmpty()
                                     .build()),
                     GENERIC_TABLE);
         }
