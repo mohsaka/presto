@@ -98,6 +98,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.UnmodifiableIterator;
@@ -373,27 +374,36 @@ class RelationPlanner
                 specification = Optional.of(new DataOrganizationSpecification(partitionBy, orderBy));
             }
 
+            // add output symbols passed from the table argument
+            ImmutableList.Builder<PassThroughColumn> passThroughColumns = ImmutableList.builder();
+            if (tableArgument.isPassThroughColumns()) {
+                // the original output symbols from the source node, not coerced
+                // note: hidden columns are included. They are present in sourcePlan.fieldMappings
+                outputVariables.addAll(sourcePlan.getFieldMappings());
+                Set<VariableReferenceExpression> partitionBy = specification
+                        .map(DataOrganizationSpecification::getPartitionBy)
+                        .map(ImmutableSet::copyOf)
+                        .orElse(ImmutableSet.of());
+                sourcePlan.getFieldMappings().stream()
+                        .map(variable -> new PassThroughColumn(variable, partitionBy.contains(variable)))
+                        .forEach(passThroughColumns::add);
+            }
+            else if (tableArgument.getPartitionBy().isPresent()) {
+                tableArgument.getPartitionBy().get().stream()
+                        // the original symbols for partitioning columns, not coerced
+                        .forEach(variable -> {
+                            outputVariables.add(variable);
+                            passThroughColumns.add(new PassThroughColumn(variable, true));
+                        });
+            }
             sources.add(sourcePlanBuilder.getRoot());
             sourceProperties.add(new TableArgumentProperties(
                     tableArgument.getArgumentName(),
                     tableArgument.isRowSemantics(),
                     tableArgument.isPruneWhenEmpty(),
-                    tableArgument.isPassThroughColumns(),
+                    new PassThroughSpecification(tableArgument.isPassThroughColumns(), passThroughColumns.build()),
                     requiredColumns,
                     specification));
-
-            // add output symbols passed from the table argument
-            if (tableArgument.isPassThroughColumns()) {
-                // the original output symbols from the source node, not coerced
-                // note: hidden columns are included. They are present in sourcePlan.fieldMappings
-                outputVariables.addAll(sourcePlan.getFieldMappings());
-            }
-            else if (tableArgument.getPartitionBy().isPresent()) {
-                tableArgument.getPartitionBy().get().stream()
-                        // the original symbols for partitioning columns, not coerced
-                        .map(sourcePlanBuilder::translate)
-                        .forEach(outputVariables::add);
-            }
         }
 
         PlanNode root = new TableFunctionNode(
@@ -404,7 +414,10 @@ class RelationPlanner
                 sources.build(),
                 sourceProperties.build(),
                 functionAnalysis.getCopartitioningLists(),
-                new TableFunctionHandle(functionAnalysis.getConnectorId(), functionAnalysis.getConnectorTableFunctionHandle(), functionAnalysis.getTransactionHandle()));
+                new TableFunctionHandle(
+                        functionAnalysis.getConnectorId(),
+                        functionAnalysis.getConnectorTableFunctionHandle(),
+                        functionAnalysis.getTransactionHandle()));
 
         return new RelationPlan(root, analysis.getScope(node), outputVariables.build());
     }
