@@ -84,6 +84,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
@@ -505,11 +506,20 @@ public class UnaliasSymbolReferences
                 TableFunctionNode.TableArgumentProperties properties = node.getTableArgumentProperties().get(i);
 
                 Optional<DataOrganizationSpecification> newSpecification = properties.getSpecification().map(inputMapper::mapAndDistinct);
+
+                PassThroughSpecification newPassThroughSpecification = new PassThroughSpecification(
+                        properties.getPassThroughSpecification().isDeclaredAsPassThrough(),
+                        properties.getPassThroughSpecification().getColumns().stream()
+                                .map(column -> new PassThroughColumn(
+                                        inputMapper.map(column.getOutputVariables()),
+                                        column.isPartitioningColumn()))
+                                .collect(toImmutableList()));
+
                 newTableArgumentProperties.add(new TableFunctionNode.TableArgumentProperties(
                         properties.getArgumentName(),
                         properties.isRowSemantics(),
                         properties.isPruneWhenEmpty(),
-                        properties.isPassThroughColumns(),
+                        newPassThroughSpecification,
                         inputMapper.map(properties.getRequiredColumns()),
                         newSpecification));
             }
@@ -523,6 +533,41 @@ public class UnaliasSymbolReferences
                     newTableArgumentProperties.build(),
                     node.getCopartitioningLists(),
                     node.getHandle());
+        }
+
+        @Override
+        public PlanNode visitTableFunctionProcessor(TableFunctionProcessorNode node, RewriteContext<Void> context)
+        {
+            if (!node.getSource().isPresent()) {
+                Map<VariableReferenceExpression, VariableReferenceExpression> mappings =
+                        Optional.ofNullable(context.get())
+                                .map(c -> new HashMap<VariableReferenceExpression, VariableReferenceExpression>())
+                                .orElseGet(HashMap::new);
+                SymbolMapper mapper = new SymbolMapper(mappings, warningCollector);
+
+                TableFunctionProcessorNode rewrittenTableFunctionProcessor = new TableFunctionProcessorNode(
+                        node.getId(),
+                        node.getName(),
+                        mapper.map(node.getProperOutputs()),
+                        Optional.empty(),
+                        node.isPruneWhenEmpty(),
+                        ImmutableList.of(),
+                        ImmutableList.of(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableSet.of(),
+                        0,
+                        node.getHashSymbol().map(mapper::map),
+                        node.getHandle());
+
+                return rewrittenTableFunctionProcessor;
+            }
+
+            PlanNode rewrittenSource = node.getSource().get().accept(this, context);
+            Map<String, String> mappings = ((Rewriter) context.getNodeRewriter()).getMapping();
+            SymbolMapper mapper = new SymbolMapper(mappings, types, warningCollector);
+
+            return mapper.map(node, rewrittenSource);
         }
 
         @Override

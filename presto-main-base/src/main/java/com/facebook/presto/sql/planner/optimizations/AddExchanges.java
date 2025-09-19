@@ -419,6 +419,12 @@ public class AddExchanges
         }
 
         @Override
+        public PlanWithProperties visitTableFunctionProcessor(TableFunctionProcessorNode node, PreferredProperties preferredProperties)
+        {
+            throw new UnsupportedOperationException("execution by operator is not yet implemented for table function " + node.getName());
+        }
+
+        @Override
         public PlanWithProperties visitRowNumber(RowNumberNode node, PreferredProperties preferredProperties)
         {
             checkArgument(!node.isPartial(), "RowNumberNode should not be partial before adding exchange");
