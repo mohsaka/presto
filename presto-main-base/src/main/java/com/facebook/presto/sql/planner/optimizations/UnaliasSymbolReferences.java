@@ -75,6 +75,9 @@ import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
@@ -83,7 +86,6 @@ import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -158,6 +160,11 @@ public class UnaliasSymbolReferences
             this.functionAndTypeManager = functionAndTypeManager;
             this.determinismEvaluator = new RowExpressionDeterminismEvaluator(functionAndTypeManager);
             this.warningCollector = warningCollector;
+        }
+
+        public Map<String, String> getMapping()
+        {
+            return mapping;
         }
 
         @Override

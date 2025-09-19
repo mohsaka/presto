@@ -200,11 +200,11 @@ public class ImplementTableFunctionSource
                     node.getName(),
                     node.getProperOutput(),
                     Optional.of(getOnlyElement(node.getSources())),
-                    sourceProperties.pruneWhenEmpty(),
+                    sourceProperties.isPruneWhenEmpty(),
                     ImmutableList.of(sourceProperties.getPassThroughSpecification()),
                     ImmutableList.of(sourceProperties.getRequiredColumns()),
                     Optional.empty(),
-                    sourceProperties.specification(),
+                    sourceProperties.getSpecification(),
                     ImmutableSet.of(),
                     0,
                     Optional.empty(),
@@ -301,7 +301,7 @@ public class ImplementTableFunctionSource
         Optional<OrderingScheme> finalOrderBy = Optional.of(new OrderingScheme(newOrderings.build()));
 
         // derive the prune when empty property
-        boolean pruneWhenEmpty = node.getTableArgumentProperties().stream().anyMatch(TableArgumentProperties::pruneWhenEmpty);
+        boolean pruneWhenEmpty = node.getTableArgumentProperties().stream().anyMatch(TableArgumentProperties::isPruneWhenEmpty);
 
         // Combine the pass through specifications from all sources
         List<PassThroughSpecification> passThroughSpecifications = node.getTableArgumentProperties().stream()
@@ -353,7 +353,7 @@ public class ImplementTableFunctionSource
         // If the source has set semantics, its specification is present, even if there is no partitioning or ordering specified.
         // If the source has row semantics, its specification is empty. Currently, such source is processed
         // as if it was a single partition. Alternatively, it could be split into smaller partitions of arbitrary size.
-        DataOrganizationSpecification specification = argumentProperties.specification().orElse(UNORDERED_SINGLE_PARTITION);
+        DataOrganizationSpecification specification = argumentProperties.getSpecification().orElse(UNORDERED_SINGLE_PARTITION);
 
         PlanNode window = new WindowNode(
                 source.getSourceLocation(),
@@ -367,7 +367,7 @@ public class ImplementTableFunctionSource
                 ImmutableSet.of(),
                 0);
 
-        return new NodeWithVariables(window, rowNumber, partitionSize, specification.getPartitionBy(), argumentProperties.pruneWhenEmpty(), rowNumberSymbolMapping);
+        return new NodeWithVariables(window, rowNumber, partitionSize, specification.getPartitionBy(), argumentProperties.isPruneWhenEmpty(), rowNumberSymbolMapping);
     }
 
     private static NodeWithVariables copartition(
@@ -382,7 +382,7 @@ public class ImplementTableFunctionSource
         // Reorder the co-partitioned sources to process the sources with prune when empty property first.
         // It allows to use inner or side joins instead of outer joins.
         sourceList = sourceList.stream()
-                .sorted(Comparator.comparingInt(source -> source.properties().pruneWhenEmpty() ? -1 : 1))
+                .sorted(Comparator.comparingInt(source -> source.properties().isPruneWhenEmpty() ? -1 : 1))
                 .collect(toImmutableList());
 
         NodeWithVariables first = planWindowFunctionsForSource(sourceList.get(0).source(), sourceList.get(0).properties(), rowNumberFunction, countFunction, context);
@@ -418,10 +418,9 @@ public class ImplementTableFunctionSource
                 .collect(toImmutableList());
 
         List<Expression> copartitionConjuncts = Streams.zip(
-                        leftPartitionBy.stream(),
+                leftPartitionBy.stream(),
                         rightPartitionBy.stream(),
-                        (leftColumn, rightColumn) -> new NotExpression(new ComparisonExpression(IS_DISTINCT_FROM, leftColumn, rightColumn)))
-                .collect(toImmutableList());
+                (leftColumn, rightColumn) -> new NotExpression(new ComparisonExpression(IS_DISTINCT_FROM, leftColumn, rightColumn))).collect(toImmutableList());
 
         // Align matching partitions (co-partitions) from left and right source, according to row number.
         // Matching partitions are identified by their corresponding partitioning columns being NOT DISTINCT from each other.

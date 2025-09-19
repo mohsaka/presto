@@ -59,6 +59,8 @@ import com.facebook.presto.sql.planner.optimizations.SampleNodeUtil;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughColumn;
+import com.facebook.presto.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
 import com.facebook.presto.sql.tree.AliasedRelation;
 import com.facebook.presto.sql.tree.Cast;
@@ -391,6 +393,7 @@ class RelationPlanner
             else if (tableArgument.getPartitionBy().isPresent()) {
                 tableArgument.getPartitionBy().get().stream()
                         // the original symbols for partitioning columns, not coerced
+                        .map(sourcePlanBuilder::translate)
                         .forEach(variable -> {
                             outputVariables.add(variable);
                             passThroughColumns.add(new PassThroughColumn(variable, true));
