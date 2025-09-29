@@ -103,6 +103,7 @@ import com.facebook.presto.sql.planner.plan.SequenceNode;
 import com.facebook.presto.sql.planner.plan.StatisticsWriterNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode;
 import com.facebook.presto.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
+import com.facebook.presto.sql.planner.plan.TableFunctionProcessorNode;
 import com.facebook.presto.sql.planner.plan.TableWriterMergeNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
 import com.facebook.presto.sql.planner.plan.UpdateNode;
@@ -114,6 +115,7 @@ import com.google.common.base.CaseFormat;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
@@ -1353,6 +1355,47 @@ public class PlanPrinter
             return null;
         }
 
+        @Override
+        public Void visitTableFunctionProcessor(TableFunctionProcessorNode node, Void context)
+        {
+            ImmutableMap.Builder<String, String> descriptor = ImmutableMap.builder();
+
+            descriptor.put("name", node.getName());
+
+            descriptor.put("properOutputs", format("[%s]", Joiner.on(", ").join(node.getProperOutputs())));
+
+            node.getSpecification().ifPresent(specification -> {
+                if (!specification.getPartitionBy().isEmpty()) {
+                    List<VariableReferenceExpression> prePartitioned = specification.getPartitionBy().stream()
+                            .filter(node.getPrePartitioned()::contains)
+                            .collect(toImmutableList());
+
+                    List<VariableReferenceExpression> notPrePartitioned = specification.getPartitionBy().stream()
+                            .filter(column -> !node.getPrePartitioned().contains(column))
+                            .collect(toImmutableList());
+
+                    StringBuilder builder = new StringBuilder();
+                    if (!prePartitioned.isEmpty()) {
+                        builder.append(prePartitioned.stream()
+                                .map(VariableReferenceExpression::toString)
+                                .collect(joining(", ", "<", ">")));
+                        if (!notPrePartitioned.isEmpty()) {
+                            builder.append(", ");
+                        }
+                    }
+                    if (!notPrePartitioned.isEmpty()) {
+                        builder.append(Joiner.on(", ").join(notPrePartitioned));
+                    }
+                    descriptor.put("partitionBy", format("[%s]", builder));
+                }
+                specification.getOrderingScheme().ifPresent(orderingScheme -> descriptor.put("orderBy", formatOrderingScheme(orderingScheme, node.getPreSorted())));
+            });
+
+            addNode(node, "TableFunctionProcessorNode" + descriptor.build());
+
+            return processChildren(node, context);
+        }
+
         private String formatArgument(String argumentName, Argument argument, Map<String, TableArgumentProperties> tableArguments)
         {
             if (argument instanceof ScalarArgument) {
@@ -1420,7 +1463,7 @@ public class PlanPrinter
                 properties.add("prune when empty");
             }
 
-            if (argumentProperties.isPassThroughColumns()) {
+            if (argumentProperties.getPassThroughSpecification().isDeclaredAsPassThrough()) {
                 properties.add("pass through columns");
             }
 
