@@ -16,3 +16,4 @@ endif()
 
 add_library(presto_dynamic_function_registrar INTERFACE
             DynamicFunctionRegistrar.h)
+add_subdirectory(tests)

@@ -112,6 +112,9 @@ public class TestCustomFunctions
                     "SELECT sum_array(ARRAY[1,2,3])",
                     "VALUES 6");
 
+            assertQuery("SELECT xdim_rstr_udf(5, 4, 0)", "VALUES 1");
+            assertQuery("SELECT targettrack_demo(5, 4, 0, 2, 3, 3, 3)","VALUES 0");
+
             // Nested array test
             assertQuery(
                     "SELECT sum_nested_array_elements(ARRAY[ARRAY[1,2], ARRAY[3,4,5]])",
