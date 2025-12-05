@@ -15,6 +15,7 @@ package com.facebook.presto.nativeworker;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.ErrorCode;
+import com.facebook.presto.delta.DeltaQueryRunner;
 import com.facebook.presto.functionNamespace.FunctionNamespaceManagerPlugin;
 import com.facebook.presto.functionNamespace.json.JsonFileBasedFunctionNamespaceManagerFactory;
 import com.facebook.presto.hive.HiveQueryRunner;
@@ -83,13 +84,14 @@ public class PrestoNativeQueryRunnerUtils
     public static final String REMOTE_FUNCTION_JSON_SIGNATURES = "remote_function_server.json";
     public static final String REMOTE_FUNCTION_CATALOG_NAME = "remote";
     public static final String HIVE_DATA = "hive_data";
+    public static final PrincipalPrivileges PRINCIPAL_PRIVILEGES = new PrincipalPrivileges(ImmutableMultimap.of(), ImmutableMultimap.of());
 
     public static final String ICEBERG_DEFAULT_STORAGE_FORMAT = "PARQUET";
+    public static final String DELTA_DEFAULT_STORAGE_FORMAT = "PARQUET";
 
     private static final Logger log = Logger.get(PrestoNativeQueryRunnerUtils.class);
     private static final String DEFAULT_STORAGE_FORMAT = "DWRF";
     private static final String SYMLINK_FOLDER = "symlink_tables_manifests";
-    private static final PrincipalPrivileges PRINCIPAL_PRIVILEGES = new PrincipalPrivileges(ImmutableMultimap.of(), ImmutableMultimap.of());
     private static final ErrorCode CREATE_ERROR_CODE = new ErrorCode(123, "CREATE_ERROR_CODE", INTERNAL_ERROR);
 
     private static final StorageFormat STORAGE_FORMAT_SYMLINK_TABLE = StorageFormat.create(
@@ -401,6 +403,101 @@ public class PrestoNativeQueryRunnerUtils
         }
     }
 
+    public static DeltaQueryRunnerBuilder nativeDeltaQueryRunnerBuilder()
+    {
+        return new DeltaQueryRunnerBuilder(QueryRunnerType.NATIVE);
+    }
+
+    public static DeltaQueryRunnerBuilder javaDeltaQueryRunnerBuilder()
+    {
+        return new DeltaQueryRunnerBuilder(QueryRunnerType.JAVA);
+    }
+
+    public static class DeltaQueryRunnerBuilder
+    {
+        private NativeQueryRunnerParameters nativeQueryRunnerParameters = getNativeQueryRunnerParameters();
+        private Path dataDirectory = nativeQueryRunnerParameters.dataDirectory;
+        private String serverBinary = nativeQueryRunnerParameters.serverBinary.toString();
+        private Integer workerCount = nativeQueryRunnerParameters.workerCount.orElse(4);
+        private CatalogType catalogType = Optional
+                .ofNullable(nativeQueryRunnerParameters.runnerParameters.get("delta.catalog.type"))
+                .map(v -> CatalogType.valueOf(v.toUpperCase()))
+                .orElse(CatalogType.HIVE);
+        private Integer cacheMaxSize = 0;
+        private String storageFormat = DELTA_DEFAULT_STORAGE_FORMAT;
+        private Map<String, String> extraProperties = new HashMap<>();
+        private Map<String, String> extraConnectorProperties = new HashMap<>();
+        private Optional<String> remoteFunctionServerUds = Optional.empty();
+        private boolean addStorageFormatToPath;
+        // External worker launcher is applicable only for the native iceberg query runner, since it depends on other
+        // properties it should be created once all the other query runner configs are set. This variable indicates
+        // whether the query runner returned by builder should use an external worker launcher, it will be true only
+        // for the native query runner and should NOT be explicitly configured by users.
+        private boolean useExternalWorkerLauncher;
+
+        private DeltaQueryRunnerBuilder(QueryRunnerType queryRunnerType)
+        {
+            if (queryRunnerType.equals(QueryRunnerType.NATIVE)) {
+                this.extraProperties.putAll(ImmutableMap.<String, String>builder()
+                        .put("http-server.http.port", "8080")
+                        .put("query.max-stage-count", "110")
+                        .putAll(getNativeWorkerSystemProperties())
+                        .build());
+                this.useExternalWorkerLauncher = true;
+            }
+            else {
+                this.extraProperties.putAll(ImmutableMap.of(
+                        "regex-library", "RE2J",
+                        "offset-clause-enabled", "true",
+                        "query.max-stage-count", "110"));
+                this.extraConnectorProperties.putAll(ImmutableMap.of("hive.parquet.writer.version", "PARQUET_1_0"));
+                this.useExternalWorkerLauncher = false;
+            }
+        }
+
+        public DeltaQueryRunnerBuilder setStorageFormat(String storageFormat)
+        {
+            this.storageFormat = storageFormat;
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder setAddStorageFormatToPath(boolean addStorageFormatToPath)
+        {
+            this.addStorageFormatToPath = addStorageFormatToPath;
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder setUseThrift(boolean useThrift)
+        {
+            this.extraProperties
+                    .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift));
+            return this;
+        }
+
+        public QueryRunner build()
+                throws Exception
+        {
+            Optional<BiFunction<Integer, URI, Process>> externalWorkerLauncher = Optional.empty();
+            if (this.useExternalWorkerLauncher) {
+                externalWorkerLauncher = getExternalWorkerLauncher("delta", serverBinary, cacheMaxSize, remoteFunctionServerUds,
+                        Optional.empty(), false, false, false, false, false, false);
+            }
+            return DeltaQueryRunner.builder()
+                    .setExtraProperties(extraProperties)
+//                    .setExtraConnectorProperties(extraConnectorProperties)
+//                    .setFormat(FileFormat.valueOf(storageFormat))
+//                    .setCreateTpchTables(false)
+//                    .setAddJmxPlugin(false)
+                      .setNodeCount(OptionalInt.of(workerCount))
+                      .setExternalWorkerLauncher(externalWorkerLauncher)
+//                    .setAddStorageFormatToPath(addStorageFormatToPath)
+//                    .setDataDirectory(Optional.of(dataDirectory))
+//                    .setTpcdsProperties(getNativeWorkerTpcdsProperties())
+//                    .setCatalogType(catalogType)
+                    .build().getQueryRunner();
+        }
+    }
+
     public static void createSchemaIfNotExist(QueryRunner queryRunner, String schemaName)
     {
         ExtendedHiveMetastore metastore = getFileHiveMetastore((DistributedQueryRunner) queryRunner);
@@ -627,7 +724,7 @@ public class PrestoNativeQueryRunnerUtils
                         "json-based-function-manager.path-to-function-definition", jsonDefinitionPath));
     }
 
-    private static Table createHiveSymlinkTable(String databaseName, String tableName, List<Column> columns, String location)
+    static Table createHiveSymlinkTable(String databaseName, String tableName, List<Column> columns, String location)
     {
         return new Table(
                 Optional.of("catalogName"),
