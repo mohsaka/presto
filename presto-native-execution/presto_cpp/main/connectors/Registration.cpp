@@ -14,6 +14,7 @@
 #include "presto_cpp/main/connectors/Registration.h"
 #include "presto_cpp/main/connectors/HivePrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/IcebergPrestoToVeloxConnector.h"
+#include "presto_cpp/main/connectors/DeltaPrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/SystemConnector.h"
 
 #ifdef PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR
@@ -34,6 +35,7 @@ namespace {
 
 constexpr char const* kHiveHadoop2ConnectorName = "hive-hadoop2";
 constexpr char const* kIcebergConnectorName = "iceberg";
+constexpr char const* kDeltaConnectorName = "delta";
 
 } // namespace
 
@@ -57,6 +59,8 @@ void registerConnectors() {
       std::make_unique<HivePrestoToVeloxConnector>(kHiveHadoop2ConnectorName));
   registerPrestoToVeloxConnector(
       std::make_unique<IcebergPrestoToVeloxConnector>(kIcebergConnectorName));
+  registerPrestoToVeloxConnector(
+      std::make_unique<DeltaPrestoToVeloxConnector>(kDeltaConnectorName));
   registerPrestoToVeloxConnector(
       std::make_unique<TpchPrestoToVeloxConnector>(
           velox::connector::tpch::TpchConnectorFactory::kTpchConnectorName));
@@ -128,6 +132,11 @@ void registerConnectorFactories() {
   facebook::presto::registerConnectorFactory(
       std::make_shared<facebook::velox::connector::hive::HiveConnectorFactory>(
           kIcebergConnectorName));
+
+    // Register Delta connector factory (using Hive implementation)
+    facebook::presto::registerConnectorFactory(
+        std::make_shared<facebook::velox::connector::hive::HiveConnectorFactory>(
+            kDeltaConnectorName));
 
 #ifdef PRESTO_ENABLE_ARROW_FLIGHT_CONNECTOR
   // Note: ArrowFlightConnectorFactory would need to be implemented in Presto

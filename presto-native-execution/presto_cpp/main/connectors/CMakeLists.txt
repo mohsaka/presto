@@ -12,6 +12,7 @@
 add_library(
   presto_connectors
   IcebergPrestoToVeloxConnector.cpp
+  DeltaPrestoToVeloxConnector.cpp
   PrestoToVeloxConnectorUtils.cpp
   HivePrestoToVeloxConnector.cpp
   Registration.cpp
