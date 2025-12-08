@@ -15,7 +15,9 @@ package com.facebook.presto.nativeworker;
 
 import com.facebook.presto.delta.AbstractDeltaDistributedQueryTestBase;
 import com.facebook.presto.testing.ExpectedQueryRunner;
+import com.facebook.presto.testing.QueryRunner;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.Test;
 
 import java.util.ArrayList;
@@ -27,6 +29,23 @@ import static java.lang.String.format;
 public class TestPrestoNativeDeltaIntegration
         extends AbstractDeltaDistributedQueryTestBase
 {
+    @Override
+    protected QueryRunner createQueryRunner()
+            throws Exception
+    {
+        QueryRunner queryRunner = PrestoNativeQueryRunnerUtils.nativeDeltaQueryRunnerBuilder().
+                setExtraProperties(ImmutableMap.of(
+                "experimental.pushdown-subfields-enabled", "true",
+                "experimental.pushdown-dereference-enabled", "true")).build();
+
+        // Create the test Delta tables in HMS
+        for (String deltaTestTable : DELTA_TEST_TABLE_LIST) {
+            registerDeltaTableInHMS(queryRunner, deltaTestTable, deltaTestTable);
+        }
+
+        return queryRunner;
+    }
+
     @Override
     protected ExpectedQueryRunner createExpectedQueryRunner()
             throws Exception

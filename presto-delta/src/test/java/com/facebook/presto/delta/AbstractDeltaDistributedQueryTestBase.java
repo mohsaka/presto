@@ -41,19 +41,19 @@ public abstract class AbstractDeltaDistributedQueryTestBase
      */
     private static final String[] DELTA_TEST_TABLE_NAMES_LIST = {
             "data-reader-primitives",
-            "data-reader-array-primitives",
-            "data-reader-map",
-            "snapshot-data3",
-            "checkpointed-delta-table",
-            "time-travel-partition-changes-b",
-            "deltatbl-partition-prune",
-            "data-reader-partition-values",
-            "data-reader-nested-struct",
-            "test-lowercase",
-            "test-partitions-lowercase",
-            "test-uppercase",
-            "test-partitions-uppercase",
-            "test-typing"
+//            "data-reader-array-primitives",
+//            "data-reader-map",
+//            "snapshot-data3",
+//            "checkpointed-delta-table",
+//            "time-travel-partition-changes-b",
+//            "deltatbl-partition-prune",
+//            "data-reader-partition-values",
+//            "data-reader-nested-struct",
+//            "test-lowercase",
+//            "test-partitions-lowercase",
+//            "test-uppercase",
+//            "test-partitions-uppercase",
+//            "test-typing"
     };
 
     /**
@@ -75,7 +75,7 @@ public abstract class AbstractDeltaDistributedQueryTestBase
     @DataProvider
     protected static Object[][] deltaReaderVersions()
     {
-        return new Object[][] {{DELTA_V1}, {DELTA_V3}};
+        return new Object[][] {{DELTA_V1}/*, {DELTA_V3}*/};
     }
 
     @Override

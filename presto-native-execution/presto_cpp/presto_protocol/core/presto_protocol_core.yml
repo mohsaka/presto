@@ -49,6 +49,7 @@ AbstractClasses:
     subclasses:
       - { name: HiveColumnHandle,         key: hive }
       - { name: IcebergColumnHandle,      key: hive-iceberg }
+      - { name: DeltaColumnHandle,        key: hive-delta }
       - { name: TpchColumnHandle,         key: tpch }
       - { name: SystemColumnHandle,       key: $system@system }
       - { name: ArrowColumnHandle,        key: arrow-flight }
@@ -65,6 +66,7 @@ AbstractClasses:
     subclasses:
       - { name: HiveTableHandle,          key: hive }
       - { name: IcebergTableHandle,       key: hive-iceberg }
+      - { name: DeltaTableHandle,         key: hive-delta }
       - { name: TpchTableHandle,          key: tpch }
       - { name: SystemTableHandle,        key: $system@system }
       - { name: ArrowTableHandle,         key: arrow-flight }
@@ -109,6 +111,7 @@ AbstractClasses:
     subclasses:
       - { name: HiveTableLayoutHandle,    key: hive }
       - { name: IcebergTableLayoutHandle, key: hive-iceberg }
+      - { name: DeltaTableLayoutHandle,   key: hive-delta }
       - { name: TpchTableLayoutHandle,    key: tpch }
       - { name: SystemTableLayoutHandle,  key: $system@system }
       - { name: ArrowTableLayoutHandle,   key: arrow-flight }
@@ -118,6 +121,7 @@ AbstractClasses:
     subclasses:
       - { name: HiveSplit,            key: hive }
       - { name: IcebergSplit,         key: hive-iceberg }
+      - { name: DeltaSplit,           key: hive-delta }
       - { name: TpchSplit,            key: tpch }
       - { name: RemoteSplit,          key: $remote }
       - { name: EmptySplit,           key: $empty }

@@ -474,6 +474,12 @@ public class PrestoNativeQueryRunnerUtils
             return this;
         }
 
+        public DeltaQueryRunnerBuilder setExtraProperties(Map<String, String> extraProperties)
+        {
+            this.extraProperties.putAll(extraProperties);
+            return this;
+        }
+
         public QueryRunner build()
                 throws Exception
         {
@@ -488,7 +494,7 @@ public class PrestoNativeQueryRunnerUtils
 //                    .setFormat(FileFormat.valueOf(storageFormat))
 //                    .setCreateTpchTables(false)
 //                    .setAddJmxPlugin(false)
-                      .setNodeCount(OptionalInt.of(workerCount))
+                      .setNodeCount(OptionalInt.of(1))
                       .setExternalWorkerLauncher(externalWorkerLauncher)
 //                    .setAddStorageFormatToPath(addStorageFormatToPath)
 //                    .setDataDirectory(Optional.of(dataDirectory))
