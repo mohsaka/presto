@@ -15,6 +15,7 @@ package com.facebook.presto.nativeworker;
 
 import com.facebook.airlift.log.Logger;
 import com.facebook.presto.common.ErrorCode;
+import com.facebook.presto.common.type.TimeZoneKey;
 import com.facebook.presto.delta.DeltaQueryRunner;
 import com.facebook.presto.functionNamespace.FunctionNamespaceManagerPlugin;
 import com.facebook.presto.functionNamespace.json.JsonFileBasedFunctionNamespaceManagerFactory;
@@ -56,6 +57,7 @@ import java.util.UUID;
 import java.util.function.BiFunction;
 
 import static com.facebook.presto.common.ErrorType.INTERNAL_ERROR;
+import static com.facebook.presto.common.type.TimeZoneKey.UTC_KEY;
 import static com.facebook.presto.hive.HiveQueryRunner.METASTORE_CONTEXT;
 import static com.facebook.presto.hive.HiveQueryRunner.createDatabaseMetastoreObject;
 import static com.facebook.presto.hive.HiveQueryRunner.getFileHiveMetastore;
@@ -424,11 +426,11 @@ public class PrestoNativeQueryRunnerUtils
                 .map(v -> CatalogType.valueOf(v.toUpperCase()))
                 .orElse(CatalogType.HIVE);
         private Integer cacheMaxSize = 0;
-        private String storageFormat = DELTA_DEFAULT_STORAGE_FORMAT;
         private Map<String, String> extraProperties = new HashMap<>();
         private Map<String, String> extraConnectorProperties = new HashMap<>();
         private Optional<String> remoteFunctionServerUds = Optional.empty();
-        private boolean addStorageFormatToPath;
+        private TimeZoneKey timeZoneKey = UTC_KEY;
+        private boolean caseSensitiveParitions;
         // External worker launcher is applicable only for the native iceberg query runner, since it depends on other
         // properties it should be created once all the other query runner configs are set. This variable indicates
         // whether the query runner returned by builder should use an external worker launcher, it will be true only
@@ -455,22 +457,28 @@ public class PrestoNativeQueryRunnerUtils
             }
         }
 
-        public DeltaQueryRunnerBuilder setStorageFormat(String storageFormat)
-        {
-            this.storageFormat = storageFormat;
-            return this;
-        }
-
-        public DeltaQueryRunnerBuilder setAddStorageFormatToPath(boolean addStorageFormatToPath)
-        {
-            this.addStorageFormatToPath = addStorageFormatToPath;
-            return this;
-        }
-
         public DeltaQueryRunnerBuilder setUseThrift(boolean useThrift)
         {
             this.extraProperties
                     .put("experimental.internal-communication.thrift-transport-enabled", String.valueOf(useThrift));
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder addExtraProperties(Map<String, String> extraProperties)
+        {
+            this.extraProperties.putAll(extraProperties);
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder setTimeZoneKey(TimeZoneKey timeZoneKey)
+        {
+            this.timeZoneKey = timeZoneKey;
+            return this;
+        }
+
+        public DeltaQueryRunnerBuilder caseSensitivePartitions()
+        {
+            this.caseSensitiveParitions = true;
             return this;
         }
 
@@ -482,11 +490,17 @@ public class PrestoNativeQueryRunnerUtils
                 externalWorkerLauncher = getExternalWorkerLauncher("delta", serverBinary, cacheMaxSize, remoteFunctionServerUds,
                         Optional.empty(), false, false, false, false, false, false);
             }
-            return DeltaQueryRunner.builder()
+            DeltaQueryRunner.Builder builder = DeltaQueryRunner.builder()
                     .setExtraProperties(extraProperties)
                     .setNodeCount(OptionalInt.of(workerCount))
                     .setExternalWorkerLauncher(externalWorkerLauncher)
-                    .build().getQueryRunner();
+                    .setTimeZoneKey(timeZoneKey);
+
+            if (caseSensitiveParitions) {
+                builder.caseSensitivePartitions();
+            }
+
+            return builder.build().getQueryRunner();
         }
     }
 

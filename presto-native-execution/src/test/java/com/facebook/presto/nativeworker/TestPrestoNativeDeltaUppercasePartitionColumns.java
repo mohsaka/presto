@@ -15,12 +15,16 @@ package com.facebook.presto.nativeworker;
 
 import com.facebook.airlift.log.Level;
 import com.facebook.airlift.log.Logging;
-import com.facebook.presto.delta.TestDeltaIntegration;
+import com.facebook.presto.common.type.TimeZoneKey;
+import com.facebook.presto.delta.TestUppercasePartitionColumns;
 import com.facebook.presto.testing.QueryRunner;
+import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.BeforeClass;
 
-public class TestPrestoNativeDeltaIntegration
-        extends TestDeltaIntegration
+import java.util.Map;
+
+public class TestPrestoNativeDeltaUppercasePartitionColumns
+        extends TestUppercasePartitionColumns
 {
     @BeforeClass
     public static void silenceDeltaLogging()
@@ -34,14 +38,14 @@ public class TestPrestoNativeDeltaIntegration
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        QueryRunner queryRunner = PrestoNativeQueryRunnerUtils.nativeDeltaQueryRunnerBuilder()
+        Map<String, String> extraProperties = ImmutableMap.of(
+                "experimental.pushdown-subfields-enabled", "true",
+                "experimental.pushdown-dereference-enabled", "true");
+
+        return PrestoNativeQueryRunnerUtils.nativeDeltaQueryRunnerBuilder()
+                .addExtraProperties(extraProperties)
+                .setTimeZoneKey(TimeZoneKey.getTimeZoneKey("Europe/Madrid"))
+                .caseSensitivePartitions()
                 .build();
-
-        // Create the test Delta tables in HMS
-        for (String deltaTestTable : DELTA_TEST_TABLE_LIST) {
-            registerDeltaTableInHMS(queryRunner, deltaTestTable, deltaTestTable);
-        }
-
-        return queryRunner;
     }
 }

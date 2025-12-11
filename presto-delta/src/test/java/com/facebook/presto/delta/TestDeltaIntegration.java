@@ -212,7 +212,6 @@ public class TestDeltaIntegration
         assertQuery(testQuery, expResultsQuery);
     }
 
-
     @Test(dataProvider = "deltaReaderVersions")
     public void readPartitionedTableAllDataTypes(String version)
     {

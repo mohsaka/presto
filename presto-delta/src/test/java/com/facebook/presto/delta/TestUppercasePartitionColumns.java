@@ -16,7 +16,6 @@ package com.facebook.presto.delta;
 import com.facebook.presto.common.type.TimeZoneKey;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
-import com.facebook.presto.tests.DistributedQueryRunner;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.Test;
 
@@ -32,14 +31,10 @@ public class TestUppercasePartitionColumns
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        return createDeltaQueryRunner(ImmutableMap.of(
+        Map<String, String> extraProperties = ImmutableMap.of(
                 "experimental.pushdown-subfields-enabled", "true",
-                "experimental.pushdown-dereference-enabled", "true"));
-    }
+                "experimental.pushdown-dereference-enabled", "true");
 
-    private static DistributedQueryRunner createDeltaQueryRunner(Map<String, String> extraProperties)
-            throws Exception
-    {
         return DeltaQueryRunner.builder()
                 .setTimeZoneKey(TimeZoneKey.getTimeZoneKey("Europe/Madrid"))
                 .setExtraProperties(extraProperties)
