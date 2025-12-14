@@ -272,7 +272,7 @@ public class PagesIndex
 
     public int buildPage(int position, int endPosition, int[] outputChannels, PageBuilder pageBuilder)
     {
-        while (!pageBuilder.isFull() && position < endPosition) {
+        while (!pageBuilder.isFull() && position < endPosition && position < positionCount) {
             long pageAddress = valueAddresses.get(position);
             int blockIndex = decodeSliceIndex(pageAddress);
             int blockPosition = decodePosition(pageAddress);
