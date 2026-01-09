@@ -1,0 +1,1 @@
+{"id":"c17d9f0b-2ce2-4c61-a55e-3c7d3466258f","ts":"2026-01-09T23:22:23.941Z","version":"1.0.2","toolName":"apply_diff","taskID":"22671bcd-673a-4ca9-bcec-271f56288ea6","path":"presto-native-execution/presto_cpp/main/connectors/DeltaPrestoToVeloxConnector.cpp","numLinesApplied":2,"currentRange":{"startLine":79,"endLine":80}}
