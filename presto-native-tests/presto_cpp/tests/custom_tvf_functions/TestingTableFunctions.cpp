@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-#include "presto_cpp/main/tvf/functions/testing/TestingTableFunctions.h"
+#include "presto_cpp/tests/custom_tvf_functions/TestingTableFunctions.h"
 
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ConstantVector.h"
@@ -177,3 +177,5 @@ void registerRepeatFunction(const std::string& name) {
 }
 
 } // namespace facebook::presto::tvf
+
+// Made with Bob

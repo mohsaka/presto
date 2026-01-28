@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-#include "presto_cpp/main/tvf/functions/testing/TestingTableFunctions.h"
+#include "presto_cpp/tests/custom_tvf_functions/TestingTableFunctions.h"
 
 // This file defines the plugin entry point for dynamically loading testing
 // table functions. The library (.so/.dylib) provides a `void registerExtensions()`
