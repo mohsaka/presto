@@ -34,6 +34,7 @@ target_link_libraries(
   presto_tvf_core
   presto_tvf_exec
   presto_tvf_functions
+  presto_tvf_testing_functions
   presto_tvf_plan_builder
   presto_tvf_spi
   velox_vector_fuzzer

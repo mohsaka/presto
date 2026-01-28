@@ -14,7 +14,7 @@
 #include <gtest/gtest.h>
 
 #include "presto_cpp/main/tvf/exec/TableFunctionTranslator.h"
-#include "presto_cpp/main/tvf/functions/TestingTableFunctions.h"
+#include "presto_cpp/main/tvf/functions/testing/TestingTableFunctions.h"
 #include "presto_cpp/main/tvf/tests/PlanBuilder.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/OperatorTestBase.h"

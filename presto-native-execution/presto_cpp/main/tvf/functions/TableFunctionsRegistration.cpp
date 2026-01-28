@@ -13,7 +13,6 @@
  */
 
 #include "presto_cpp/main/tvf/functions/TableFunctionsRegistration.h"
-#include "presto_cpp/main/tvf/functions/TestingTableFunctions.h"
 
 namespace facebook::presto::tvf {
 
@@ -25,9 +24,8 @@ void registerAllTableFunctions(const std::string& prefix) {
   registerExcludeColumns(prefix + "exclude_columns");
   registerSequence(prefix + "sequence");
   registerRemoteAnn(prefix + "remoteAnn");
-  registerRepeatFunction(prefix + "repeat_table_function");
-  registerIdentityFunction(prefix + "identity_table_function");
-  registerSimpleTableFunction(prefix + "simple_table_function");
+  // Testing table functions (repeat, identity, simple) are now dynamically
+  // loaded via the presto_tvf_testing_plugin.so shared library
 }
 
 } // namespace facebook::presto::tvf
