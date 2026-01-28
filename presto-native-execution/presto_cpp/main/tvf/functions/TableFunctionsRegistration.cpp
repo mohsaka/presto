@@ -24,8 +24,6 @@ void registerAllTableFunctions(const std::string& prefix) {
   registerExcludeColumns(prefix + "exclude_columns");
   registerSequence(prefix + "sequence");
   registerRemoteAnn(prefix + "remoteAnn");
-  // Testing table functions (repeat, identity, simple) are now dynamically
-  // loaded via the presto_tvf_testing_plugin.so shared library
 }
 
 } // namespace facebook::presto::tvf

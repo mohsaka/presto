@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-#include "presto_cpp/main/tvf/functions/testing/TestingTableFunctions.h"
+#include "TestingTableFunctions.h"
 
 // This file defines the plugin entry point for dynamically loading testing
 // table functions. The library (.so/.dylib) provides a `void registerExtensions()`
@@ -26,9 +26,13 @@ extern "C" {
 // The function registerExtensions is the entry point to execute the
 // registration of the table functions and cannot be changed.
 void registerExtensions() {
-  facebook::presto::tvf::registerRepeatFunction("repeat_table_function");
-  facebook::presto::tvf::registerIdentityFunction("identity_table_function");
-  facebook::presto::tvf::registerSimpleTableFunction("simple_table_function");
+  facebook::presto::tvf::registerRepeatFunction("presto.default.repeat_table_function");
+  facebook::presto::tvf::registerIdentityFunction("presto.default.identity_table_function");
+  facebook::presto::tvf::registerSimpleTableFunction("presto.default.simple_table_function");
+
+  facebook::presto::tvf::RepeatFunctionHandle::registerSerDe();
+  facebook::presto::tvf::IdentityFunctionHandle::registerSerDe();
+  facebook::presto::tvf::SimpleTableFunctionHandle::registerSerDe();
 }
 }
 

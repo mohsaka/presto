@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-#include "presto_cpp/main/tvf/functions/testing/TestingTableFunctions.h"
+#include "presto_cpp/main/tvf/functions/TestingTableFunctions.h"
 
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ConstantVector.h"
