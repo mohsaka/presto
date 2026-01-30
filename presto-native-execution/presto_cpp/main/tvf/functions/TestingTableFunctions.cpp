@@ -91,7 +91,7 @@ void registerIdentityFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
   argSpecs.insert(
       std::make_shared<TableArgumentSpecification>(
-          "INPUT", true, false, false));
+          "INPUT", false, false, true));
   registerTableFunction(
       name,
       argSpecs,
@@ -158,7 +158,7 @@ void registerRepeatFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
   argSpecs.insert(
       std::make_shared<TableArgumentSpecification>(
-          "INPUT", true, false, false));
+          "INPUT", false, false, true));
   argSpecs.insert(
       std::make_shared<ScalarArgumentSpecification>("COUNT", BIGINT(), true));
   registerTableFunction(

@@ -1906,7 +1906,7 @@ VeloxQueryPlanConverterBase::toVeloxQueryPlan(
     if (!node->specification->partitionBy.empty()) {
       partitionKeys = toVeloxExprs(node->specification->partitionBy);
     }
-    if (!node->specification->orderingScheme) {
+    if (node->specification->orderingScheme) {
       for (const auto& orderby : node->specification->orderingScheme->orderBy) {
         sortingKeys.emplace_back(exprConverter_.toVeloxExpr(orderby.variable));
         sortingOrders.push_back(toVeloxSortOrder(orderby.sortOrder));

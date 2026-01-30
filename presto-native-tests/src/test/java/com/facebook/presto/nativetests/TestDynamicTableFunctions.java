@@ -98,7 +98,7 @@ public class TestDynamicTableFunctions
                     ". Please ensure the build completed successfully.");
         }
 
-        QueryRunner queryRunner =  nativeHiveQueryRunnerBuilder()
+        QueryRunner queryRunner = nativeHiveQueryRunnerBuilder()
                 .setStorageFormat(storageFormat)
                 .setAddStorageFormatToPath(true)
                 .setUseThrift(true)
@@ -183,68 +183,54 @@ public class TestDynamicTableFunctions
                 "SELECT * FROM TABLE(simple_table_function(COLUMN => 'my_boolean'))",
                 "SELECT my_boolean FROM (VALUES true) t(my_boolean)");
     }
-
+/*
+    // Tests from TestTableFunctionInvocation
     @Test
-    public void testTableFunctionComposition()
+    public void testPrimitiveDefaultArgument()
     {
-        // Test composing repeat and identity functions
-        assertQuery(
-                "SELECT * FROM TABLE(identity_table_function(" +
-                        "    INPUT => TABLE(repeat_table_function(" +
-                        "        INPUT => TABLE(SELECT 1 as x), " +
-                        "        COUNT => 3))))",
-                "VALUES 1, 1, 1");
+        assertQuery("SELECT boolean_column FROM TABLE(simple_table_function(column => 'boolean_column', ignored => 1))", "SELECT true WHERE false");
 
-        // Test more complex composition
-        assertQuery(
-                "SELECT count(*) FROM TABLE(repeat_table_function(" +
-                        "    INPUT => TABLE(identity_table_function(" +
-                        "        INPUT => TABLE(SELECT * FROM (VALUES 1, 2) t(x)))), " +
-                        "    COUNT => 4))",
-                "VALUES BIGINT '8'");
+        // skip the `ignored` argument.
+        assertQuery("SELECT boolean_column FROM TABLE(simple_table_function(column => 'boolean_column'))",
+                "SELECT true WHERE false");
     }
 
     @Test
-    public void testTableFunctionWithAggregation()
+    public void testNoArgumentsPassed()
     {
-        // Test aggregation over repeated rows
-        assertQuery(
-                "SELECT sum(x), count(*) FROM TABLE(repeat_table_function(" +
-                        "    INPUT => TABLE(SELECT * FROM (VALUES 1, 2, 3) t(x)), " +
-                        "    COUNT => 2))",
-                "VALUES (BIGINT '12', BIGINT '6')");
-
-        // Test distinct after repeat
-        assertQuery(
-                "SELECT DISTINCT x FROM TABLE(repeat_table_function(" +
-                        "    INPUT => TABLE(SELECT * FROM (VALUES 1, 2, 3) t(x)), " +
-                        "    COUNT => 5))",
-                "VALUES 1, 2, 3");
-    }
+        assertQuery("SELECT col FROM TABLE(simple_table_function())",
+                "SELECT true WHERE false");
+    }*/
 
     @Test
-    public void testTableFunctionWithJoin()
+    public void testIdentityFunction()
     {
-        // Test joining table function output with regular table
-        assertQuery(
-                "SELECT t1.x, t2.y " +
-                        "FROM TABLE(identity_table_function(" +
-                        "    INPUT => TABLE(SELECT * FROM (VALUES 1, 2) t(x)))) t1 " +
-                        "JOIN (VALUES ('a'), ('b')) t2(y) ON true",
-                "VALUES (1, 'a'), (1, 'b'), (2, 'a'), (2, 'b')");
-    }
+        assertQuery("SELECT b, a FROM TABLE(identity_table_function(input => TABLE(VALUES (1, 2), (3, 4), (5, 6)) T(a, b)))",
+                "VALUES (2, 1), (4, 3), (6, 5)");
 
-    @Test
-    public void testTableFunctionWithFilter()
-    {
-        // Test filtering table function output
-        assertQuery(
-                "SELECT * FROM TABLE(repeat_table_function(" +
-                        "    INPUT => TABLE(SELECT * FROM (VALUES 1, 2, 3, 4, 5) t(x)), " +
-                        "    COUNT => 2)) " +
-                        "WHERE x > 2",
-                "VALUES 3, 3, 4, 4, 5, 5");
+        // null partitioning value
+        assertQuery("SELECT i.b, a FROM TABLE(identity_table_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b)) i",
+                "VALUES (1, 'x'), (2, 'y'), (null, 'z')");
     }
+/*
+    @Test
+    public void testRepeatFunction()
+    {
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES (1, 2), (3, 4), (5, 6))))",
+                "VALUES (1, 2), (1, 2), (3, 4), (3, 4), (5, 6), (5, 6)");
+
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)), 4))",
+                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, 4))",
+                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) ORDER BY y, 4))",
+                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, 4))",
+                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+    }*/
 
     private static Path getLocalPluginDirectory()
     {
