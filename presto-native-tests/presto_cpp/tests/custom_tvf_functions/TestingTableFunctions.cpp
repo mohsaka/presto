@@ -158,7 +158,7 @@ void registerRepeatFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
   argSpecs.insert(
       std::make_shared<TableArgumentSpecification>(
-          "INPUT", false, false, true));
+          "INPUT", false, false, false));
   argSpecs.insert(
       std::make_shared<ScalarArgumentSpecification>("COUNT", BIGINT(), true));
   registerTableFunction(

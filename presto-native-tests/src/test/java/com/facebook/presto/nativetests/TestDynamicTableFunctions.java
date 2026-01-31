@@ -212,7 +212,7 @@ public class TestDynamicTableFunctions
         assertQuery("SELECT i.b, a FROM TABLE(identity_table_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b)) i",
                 "VALUES (1, 'x'), (2, 'y'), (null, 'z')");
     }
-/*
+
     @Test
     public void testRepeatFunction()
     {
@@ -230,7 +230,7 @@ public class TestDynamicTableFunctions
 
         assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
-    }*/
+    }
 
     private static Path getLocalPluginDirectory()
     {
