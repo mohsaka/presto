@@ -514,7 +514,12 @@ json getAnalyzedTableValueFunction(
       std::vector<std::string> fieldNames;
       std::vector<velox::TypePtr> fieldTypes;
       for (auto& arg : tableArgument->fields) {
-        fieldNames.push_back(boost::algorithm::to_lower_copy(*arg.name));
+        if(arg.name){
+          fieldNames.push_back(boost::algorithm::to_lower_copy(*arg.name));
+        } else{
+          // Unable to add a null field name in C++
+          fieldNames.push_back("");
+        }
         fieldTypes.push_back(parser.parse(*arg.type));
       }
       functionArg = std::make_shared<tvf::TableArgument>(
