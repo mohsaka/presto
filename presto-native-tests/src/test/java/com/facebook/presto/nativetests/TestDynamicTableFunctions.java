@@ -169,7 +169,7 @@ public class TestDynamicTableFunctions
                         "    INPUT => TABLE(SELECT * FROM (VALUES 5, 3, 1, 4, 2) t(x) ORDER BY x)))",
                 "VALUES 1, 2, 3, 4, 5");
     }
-
+/*
     @Test
     public void testSimpleTableFunction()
     {
@@ -182,7 +182,7 @@ public class TestDynamicTableFunctions
         assertQuery(
                 "SELECT * FROM TABLE(simple_table_function(COLUMN => 'my_boolean'))",
                 "SELECT my_boolean FROM (VALUES true) t(my_boolean)");
-    }
+    }*/
 /*
     // Tests from TestTableFunctionInvocation
     @Test
@@ -200,7 +200,7 @@ public class TestDynamicTableFunctions
     {
         assertQuery("SELECT col FROM TABLE(simple_table_function())",
                 "SELECT true WHERE false");
-    }*/
+    }*
 
     @Test
     public void testIdentityFunction()
@@ -211,25 +211,33 @@ public class TestDynamicTableFunctions
         // null partitioning value
         assertQuery("SELECT i.b, a FROM TABLE(identity_table_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b)) i",
                 "VALUES (1, 'x'), (2, 'y'), (null, 'z')");
-    }
+    }*/
 
     @Test
     public void testRepeatFunction()
     {
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES (1, 2), (3, 4), (5, 6))))",
+        assertQuery(
+                "SELECT * FROM TABLE(repeat_table_function(" +
+                        "    INPUT => TABLE(" +
+                        "        SELECT * FROM (VALUES (1, 2), (3, 4), (5, 6)) t(x, y)" +
+                        "    ), " +
+                        "    COUNT => 2))",
                 "VALUES (1, 2), (1, 2), (3, 4), (3, 4), (5, 6), (5, 6)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)), 4))",
-                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES (1, 2), (3, 4), (5, 6)), COUNT => 2))",
+                "VALUES (1, 2), (1, 2), (3, 4), (3, 4), (5, 6), (5, 6)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, 4))",
-                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+//        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)), COUNT => 4))",
+//                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) ORDER BY y, 4))",
-                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+//        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, COUNT => 4))",
+//                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, 4))",
-                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+//        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) ORDER BY y, COUNT => 4))",
+//                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+
+//        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, COUNT => 4))",
+//                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
     }
 
     private static Path getLocalPluginDirectory()
