@@ -300,6 +300,8 @@ buildArgumentSpecsList(TableArgumentSpecList argumentsSpec) {
       scalarArgumentSpecification->required = scalarArgumentSpec->required();
       scalarArgumentSpecification->type =
           scalarArgumentSpec->rowType()->toString();
+      scalarArgumentSpecification->defaultValue =
+          scalarArgumentSpec->defaultValue();
       argumentsSpecsList.emplace_back(scalarArgumentSpecification);
     } else if (
         auto tableArgumentSpec =

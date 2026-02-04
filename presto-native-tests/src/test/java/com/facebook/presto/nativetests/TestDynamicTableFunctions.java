@@ -140,6 +140,12 @@ public class TestDynamicTableFunctions
                         "    INPUT => TABLE(SELECT * FROM (VALUES 1, 2, 3) t(x)), " +
                         "    COUNT => 5))",
                 "VALUES 15");
+
+        // Test with multiple input rows no count argument
+        assertQuery(
+                "SELECT * FROM TABLE(repeat_table_function(" +
+                        "    INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b')) t(x, y))))",
+                "VALUES (1, 'a'), (1, 'a'), (2, 'b'), (2, 'b')");
     }
 
     @Test

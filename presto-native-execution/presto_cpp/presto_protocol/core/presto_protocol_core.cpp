@@ -10630,6 +10630,11 @@ void to_json(json& j, const ScalarArgumentSpecification& p) {
       "ScalarArgumentSpecification",
       "bool",
       "required");
+  // Only include defaultValue if it's not empty
+  // Send as string - Java side will handle conversion
+  if (!p.defaultValue.empty()) {
+    j["defaultValue"] = p.defaultValue;
+  }
 }
 
 void from_json(const json& j, ScalarArgumentSpecification& p) {
@@ -10645,6 +10650,13 @@ void from_json(const json& j, ScalarArgumentSpecification& p) {
       "ScalarArgumentSpecification",
       "bool",
       "required");
+  from_json_key(
+      j,
+      "defaultValue",
+      p.defaultValue,
+      "ScalarArgumentSpecification",
+      "String",
+      "defaultValue");
 }
 } // namespace facebook::presto::protocol
 namespace facebook::presto::protocol {

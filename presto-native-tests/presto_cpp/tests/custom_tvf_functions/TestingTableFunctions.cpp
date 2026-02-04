@@ -160,7 +160,7 @@ void registerRepeatFunction(const std::string& name) {
       std::make_shared<TableArgumentSpecification>(
           "INPUT", false, false, false));
   argSpecs.insert(
-      std::make_shared<ScalarArgumentSpecification>("COUNT", BIGINT(), true));
+      std::make_shared<ScalarArgumentSpecification>("COUNT", BIGINT(), false, "2"));
   registerTableFunction(
       name,
       argSpecs,
