@@ -8552,7 +8552,9 @@ void to_json(json& j, const Serializable& p) {
 
 void from_json(const json& j, Serializable& p) {
   from_json_key(j, "type", p.type, "Serializable", "Type", "type");
-  from_json_key(j, "block", p.block, "Serializable", "Block", "block");
+  if (j.contains("block") && !j["block"].is_null()) {
+    from_json_key(j, "block", p.block, "Serializable", "Block", "block");
+  }
 }
 } // namespace facebook::presto::protocol
 namespace facebook::presto::protocol {
