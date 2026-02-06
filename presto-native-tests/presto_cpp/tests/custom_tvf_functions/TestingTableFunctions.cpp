@@ -46,7 +46,7 @@ void registerSimpleTableFunction(const std::string& name) {
       std::make_shared<ScalarArgumentSpecification>("COLUMN", VARCHAR(), true));
   argSpecs.insert(
       std::make_shared<ScalarArgumentSpecification>(
-          "IGNORED", BIGINT(), false));
+          "IGNORED", BIGINT(), false, "0"));
 
   registerTableFunction(
       name,

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.tests;
 
+import com.facebook.presto.Session;
 import com.facebook.presto.connector.tvf.TestTVFConnectorColumnHandle;
 import com.facebook.presto.connector.tvf.TestTVFConnectorFactory;
 import com.facebook.presto.connector.tvf.TestTVFConnectorPlugin;
@@ -24,6 +25,7 @@ import com.facebook.presto.spi.ConnectorTableHandle;
 import com.facebook.presto.spi.FixedSplitSource;
 import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.function.SchemaFunctionName;
+import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tpch.TpchPlugin;
 import com.google.common.collect.ImmutableList;
@@ -159,17 +161,22 @@ public class TestTableFunctionInvocation
         queryRunner.installPlugin(new TpchPlugin());
         queryRunner.createCatalog("tpch", "tpch");
     }
-/*
+
     @Test
     public void testPrimitiveDefaultArgument()
     {
+        Session session =
+                Session.builder(getSession())
+                        .setSystemProperty("verbose_optimizer_info_enabled", "true")
+                        .build();
+        MaterializedResult result = computeActual(session, "EXPLAIN SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column', ignored => 1))");
         assertQuery("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column', ignored => 1))", "SELECT true WHERE false");
 
         // skip the `ignored` argument.
         assertQuery("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column'))",
                 "SELECT true WHERE false");
     }
-
+/*
     @Test
     public void testNoArgumentsPassed()
     {
