@@ -1870,7 +1870,15 @@ VeloxQueryPlanConverterBase::toVeloxQueryPlan(
     const std::shared_ptr<const protocol::TableFunctionProcessorNode>& node,
     const std::shared_ptr<protocol::TableWriteInfo>& tableWriteInfo,
     const protocol::TaskId& taskId) {
-  const auto outputType = toRowType(node->properOutputs, typeParser_);
+  // Build complete output variable list including proper outputs and pass through columns.
+  std::vector<protocol::VariableReferenceExpression> allOutputs = node->properOutputs;
+  for (const auto& spec : node->passThroughSpecifications) {
+    for (const auto& col : spec.columns) {
+      allOutputs.push_back(col.outputVariables);
+    }
+  }
+
+  const auto outputType = toRowType(allOutputs, typeParser_);
 
   std::vector<std::vector<column_index_t>> requiredColumns;
   std::vector<core::PlanNodePtr> sources;

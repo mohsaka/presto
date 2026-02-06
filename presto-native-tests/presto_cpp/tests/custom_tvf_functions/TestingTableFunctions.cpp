@@ -16,6 +16,7 @@
 
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ConstantVector.h"
+#include "velox/vector/FlatVector.h"
 
 using namespace facebook::velox;
 
@@ -116,13 +117,28 @@ std::shared_ptr<TableFunctionResult> RepeatFunctionDataProcessor::apply(
         TableFunctionResult::TableFunctionState::kFinished);
   }
 
-  RowVectorPtr outputTable =
-      RowVector::createEmpty(inputTable->rowType(), pool());
+  // For ONLY_PASS_THROUGH with non-partitioning columns, return RowVector
+  // with one INT32 index column that specifies which partition rows to extract
+  // Each input row is repeated 'count' times
   auto count = handle_->count();
-  outputTable->resize(numRows * count);
-  for (int i = 0; i < count; i++) {
-    outputTable->copy(inputTable.get(), i * numRows, 0, numRows);
+  auto totalOutputRows = numRows * count;
+
+  // Create the index column - repeat each row index 'count' times.
+  // Follows Java process index creation order.
+  auto indexColumn = BaseVector::create<FlatVector<int32_t>>(INTEGER(), totalOutputRows, pool());
+  auto* rawIndices = indexColumn->mutableRawValues();
+
+  for (int64_t round = 0; round < count; round++) {
+    for (int64_t i = 0; i < numRows; i++) {
+      rawIndices[round * numRows + i] = i;
+    }
   }
+
+  // Create RowVector with the index column as a child
+  auto rowType = ROW({INTEGER()});
+  std::vector<VectorPtr> children = {indexColumn};
+  RowVectorPtr outputTable = std::make_shared<RowVector>(
+      pool(), rowType, BufferPtr(nullptr), totalOutputRows, std::move(children));
 
   return std::make_shared<TableFunctionResult>(true, std::move(outputTable));
 }
@@ -136,20 +152,12 @@ std::unique_ptr<RepeatFunctionAnalysis> RepeatFunction::analyze(
 
   auto count = countPtr->value()->as<ConstantVector<int64_t>>()->valueAt(0);
 
-  std::vector<std::string> returnNames = input->rowType()->names();
-  std::vector<TypePtr> returnTypes;
-  std::vector<column_index_t> requiredColsList;
-  for (size_t i = 0; i < returnNames.size(); i++) {
-    returnTypes.push_back(input->rowType()->childAt(i));
-    requiredColsList.push_back(i);
-  }
-  RequiredColumnsMap requiredColumns;
-  requiredColumns.emplace("INPUT", requiredColsList);
+  // For ONLY_PASS_THROUGH, per spec, function must require at least one column (index 0)
+  RequiredColumnsMap requiredColumns{{"INPUT", {0}}};
+
   auto analysis = std::make_unique<RepeatFunctionAnalysis>();
   analysis->tableFunctionHandle_ =
       std::make_shared<RepeatFunctionHandle>(count);
-  analysis->returnType_ =
-      std::make_shared<Descriptor>(returnNames, returnTypes);
   analysis->requiredColumns_ = requiredColumns;
   return analysis;
 }
@@ -158,13 +166,13 @@ void registerRepeatFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
   argSpecs.insert(
       std::make_shared<TableArgumentSpecification>(
-          "INPUT", false, false, false));
+          "INPUT", false, false, true));
   argSpecs.insert(
       std::make_shared<ScalarArgumentSpecification>("COUNT", BIGINT(), false, "2"));
   registerTableFunction(
       name,
       argSpecs,
-      std::make_shared<GenericTableReturnTypeSpecification>(),
+      std::make_shared<OnlyPassThroughReturnTypeSpecification>(),
       RepeatFunction::analyze,
       [](const TableFunctionHandlePtr& handle,
          memory::MemoryPool* pool,

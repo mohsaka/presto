@@ -236,14 +236,18 @@ public class TestDynamicTableFunctions
         assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)), COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
-//        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, COUNT => 4))",
-//                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, COUNT => 4))",
+                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+
+        // Test with 3 columns: 1 partitioning column (x) + 2 non-partitioning columns (y, z)
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true, 1), ('b', false, 2)) t(x, y, z) PARTITION BY x, COUNT => 3))",
+                "VALUES ('a', true, 1), ('a', true, 1), ('a', true, 1), ('b', false, 2), ('b', false, 2), ('b', false, 2)");
 
         assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) ORDER BY y, COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
-//        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, COUNT => 4))",
-//                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
+        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, COUNT => 4))",
+                "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
     }
 
     private static Path getLocalPluginDirectory()

@@ -341,6 +341,13 @@ std::shared_ptr<protocol::ReturnTypeSpecification> buildReturnTypeSpecification(
         genericTableReturnTypeSpecification =
             std::make_shared<protocol::GenericTableReturnTypeSpecification>();
     return genericTableReturnTypeSpecification;
+  } else if (
+      returnTypeSpecification ==
+      ReturnTypeSpecification::ReturnType::kOnlyPassThrough) {
+    std::shared_ptr<protocol::OnlyPassThroughReturnTypeSpecification>
+        onlyPassThroughReturnTypeSpecification =
+            std::make_shared<protocol::OnlyPassThroughReturnTypeSpecification>();
+    return onlyPassThroughReturnTypeSpecification;
   } else {
     std::shared_ptr<protocol::DescribedTableReturnTypeSpecification>
         describedTableReturnTypeSpecification =

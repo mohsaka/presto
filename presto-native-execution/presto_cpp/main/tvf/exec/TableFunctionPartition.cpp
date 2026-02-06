@@ -239,31 +239,59 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
     return functionOutput;
   }
 
-  VELOX_CHECK_EQ(
-      functionOutput->children().size() + passThroughSpecifications_.size(),
-      outputType_->size());
+  // For ONLY_PASS_THROUGH functions, all output columns come from pass-through
+  // The function output only contains index columns for non-partitioning pass-through
+  bool isOnlyPassThrough = (passThroughSpecifications_.size() == outputType_->size());
+  
+  if (isOnlyPassThrough) {
+    VELOX_CHECK_EQ(passThroughSpecifications_.size(), outputType_->size());
+  } else {
+    VELOX_CHECK_EQ(
+        functionOutput->children().size() + passThroughSpecifications_.size(),
+        outputType_->size());
+  }
   auto numOutputRows = functionOutput->size();
   auto result =
       BaseVector::create<RowVector>(outputType_, numOutputRows, pool_);
-  // Copy function output columns.
-  for (int i = 0; i < functionOutput->children().size(); i++) {
-    result->childAt(i) = functionOutput->childAt(i);
-  }
-
-  // Copy passthrough columns.
-  for (const auto& spec : passThroughSpecifications_) {
-    auto passThroughColumn = BaseVector::create(
-        outputType_->childAt(spec.inputChannel()), numOutputRows, pool_);
-    if (spec.isPartitioningColumn()) {
-      extractPartitionColumn(spec.inputChannel(), passThroughColumn);
-    } else {
-      extractPassThroughIndexColumn(
-          spec.inputChannel(),
-          spec.indexChannel(),
-          functionOutput,
-          passThroughColumn);
+  
+  if (isOnlyPassThrough) {
+    // For ONLY_PASS_THROUGH, all output columns come from pass-through
+    // Function output only contains index columns, not proper output columns
+    for (const auto& spec : passThroughSpecifications_) {
+      auto passThroughColumn = BaseVector::create(
+          outputType_->childAt(spec.inputChannel()), numOutputRows, pool_);
+      if (spec.isPartitioningColumn()) {
+        extractPartitionColumn(spec.inputChannel(), passThroughColumn);
+      } else {
+        extractPassThroughIndexColumn(
+            spec.inputChannel(),
+            spec.indexChannel(),
+            functionOutput,
+            passThroughColumn);
+      }
+      result->childAt(spec.inputChannel()) = passThroughColumn;
     }
-    result->childAt(spec.inputChannel()) = passThroughColumn;
+  } else {
+    // For regular functions, copy function output columns first, then pass-through
+    for (int i = 0; i < functionOutput->children().size(); i++) {
+      result->childAt(i) = functionOutput->childAt(i);
+    }
+
+    // Copy passthrough columns.
+    for (const auto& spec : passThroughSpecifications_) {
+      auto passThroughColumn = BaseVector::create(
+          outputType_->childAt(spec.inputChannel()), numOutputRows, pool_);
+      if (spec.isPartitioningColumn()) {
+        extractPartitionColumn(spec.inputChannel(), passThroughColumn);
+      } else {
+        extractPassThroughIndexColumn(
+            spec.inputChannel(),
+            spec.indexChannel(),
+            functionOutput,
+            passThroughColumn);
+      }
+      result->childAt(spec.inputChannel()) = passThroughColumn;
+    }
   }
   return result;
 }
