@@ -142,14 +142,24 @@ RowVectorPtr TableFunctionOperator::getOutputFromFunction() {
   if (result->usedInput()) {
     // The input rows were consumed, so we need to re-assemble input at the
     // next call.
-    numPartitionProcessedRows_ += functionInput_[0]->size();
-    numProcessedRows_ += functionInput_[0]->size();
+    // Handle null input (empty partition case)
+    if (functionInput_[0]) {
+      numPartitionProcessedRows_ += functionInput_[0]->size();
+      numProcessedRows_ += functionInput_[0]->size();
+    }
     validFunctionInput_ = false;
   }
 
   // Append passthrough columns if any.
-  return std::move(
-      tableFunctionPartition_->appendPassThroughColumns(resultRows));
+  auto finalResult = tableFunctionPartition_->appendPassThroughColumns(resultRows);
+  
+  // Operator::getOutput() must return nullptr or a non-empty vector
+  // If the result is empty, return nullptr instead
+  if (finalResult && finalResult->size() == 0) {
+    return nullptr;
+  }
+  
+  return std::move(finalResult);
 }
 
 RowVectorPtr TableFunctionOperator::getOutput() {

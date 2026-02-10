@@ -200,9 +200,34 @@ public class TestDynamicTableFunctions
         assertQuery("SELECT b, a FROM TABLE(identity_function(input => TABLE(VALUES (1, 2), (3, 4), (5, 6)) T(a, b)))",
                 "VALUES (2, 1), (4, 3), (6, 5)");
 
+        assertQuery("SELECT b, a FROM TABLE(identity_pass_through_function(input => TABLE(VALUES (1, 2), (3, 4), (5, 6)) T(a, b)))",
+                "VALUES (2, 1), (4, 3), (6, 5)");
+
         // null partitioning value
         assertQuery("SELECT i.b, a FROM TABLE(identity_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b)) i",
                 "VALUES (1, 'x'), (2, 'y'), (null, 'z')");
+
+        assertQuery("SELECT b, a FROM TABLE(identity_pass_through_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b))",
+                "VALUES (1, 'x'), (2, 'y'), (null, 'z')");
+    }
+
+    @Test
+    public void testPruneAllColumns()
+    {
+        // function identity_pass_through_function has no proper outputs. It outputs input columns using the pass-through mechanism.
+        // in this case, no pass-through columns are referenced, so they are all pruned. The function effectively produces no columns.
+        assertQuery("SELECT 'a' FROM TABLE(identity_pass_through_function(input => TABLE(VALUES 1, 2, 3)))",
+                "VALUES 'a', 'a', 'a'");
+
+        // Test with empty input and all columns pruned (KEEP WHEN EMPTY)
+        // This was previously crashing due to a framework bug in appendPassThroughColumns
+        // when outputType_ had 0 children (all columns pruned). Fixed by adding early return.
+        assertQuery("SELECT 'a' FROM TABLE(identity_pass_through_function(input => TABLE(SELECT 1 WHERE false)))",
+                "SELECT 'a' WHERE false");
+
+        // all pass-through columns are pruned. Also, the input is empty, and it has PRUNE WHEN EMPTY property, so the function is pruned out.
+        assertQuery("SELECT 'a' FROM TABLE(identity_pass_through_function(input => TABLE(SELECT 1 WHERE false) PRUNE WHEN EMPTY))",
+                "SELECT 'a' WHERE false");
     }
 
     @Test

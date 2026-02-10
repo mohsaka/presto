@@ -239,6 +239,15 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
     return functionOutput;
   }
 
+  auto numOutputRows = functionOutput->size();
+  
+  // Handle the case where all columns are pruned (outputType_ has 0 children)
+  // In this case, we just return an empty RowVector with the correct row count
+  // This can happen with ONLY_PASS_THROUGH functions when all pass-through columns are pruned
+  if (outputType_->size() == 0) {
+    return BaseVector::create<RowVector>(outputType_, numOutputRows, pool_);
+  }
+
   // For ONLY_PASS_THROUGH functions, all output columns come from pass-through
   // The function output only contains index columns for non-partitioning pass-through
   bool isOnlyPassThrough = (passThroughSpecifications_.size() == outputType_->size());
@@ -250,7 +259,7 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
         functionOutput->children().size() + passThroughSpecifications_.size(),
         outputType_->size());
   }
-  auto numOutputRows = functionOutput->size();
+  
   auto result =
       BaseVector::create<RowVector>(outputType_, numOutputRows, pool_);
   
@@ -263,11 +272,15 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
       if (spec.isPartitioningColumn()) {
         extractPartitionColumn(spec.inputChannel(), passThroughColumn);
       } else {
-        extractPassThroughIndexColumn(
-            spec.inputChannel(),
-            spec.indexChannel(),
-            functionOutput,
-            passThroughColumn);
+        // Only extract using index column if the function output has children
+        // When all columns are pruned, functionOutput may have 0 children
+        if (spec.indexChannel() < functionOutput->childrenSize()) {
+          extractPassThroughIndexColumn(
+              spec.inputChannel(),
+              spec.indexChannel(),
+              functionOutput,
+              passThroughColumn);
+        }
       }
       result->childAt(spec.inputChannel()) = passThroughColumn;
     }

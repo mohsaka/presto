@@ -29,10 +29,12 @@ void registerExtensions() {
   facebook::presto::tvf::registerSimpleTableFunction("presto.default.simple_table_function");
   facebook::presto::tvf::registerRepeatFunction("presto.default.repeat");
   facebook::presto::tvf::registerIdentityFunction("presto.default.identity_function");
+  facebook::presto::tvf::registerIdentityPassThroughFunction("presto.default.identity_pass_through_function");
 
   facebook::presto::tvf::SimpleTableFunctionHandle::registerSerDe();
   facebook::presto::tvf::RepeatFunctionHandle::registerSerDe();
   facebook::presto::tvf::IdentityFunctionHandle::registerSerDe();
+  facebook::presto::tvf::IdentityPassThroughFunctionHandle::registerSerDe();
 }
 }
 

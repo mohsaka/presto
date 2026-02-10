@@ -116,19 +116,16 @@ std::shared_ptr<TableFunctionResult> RepeatFunctionDataProcessor::apply(
     const std::vector<velox::RowVectorPtr>& input) {
   auto inputTable = input.at(0);
   auto numRows = inputTable->size();
+
   if (numRows == 0) {
     return std::make_shared<TableFunctionResult>(
         TableFunctionResult::TableFunctionState::kFinished);
   }
 
-  // For ONLY_PASS_THROUGH with non-partitioning columns, return RowVector
-  // with one INT32 index column that specifies which partition rows to extract
-  // Each input row is repeated 'count' times
   auto count = handle_->count();
   auto totalOutputRows = numRows * count;
 
-  // Create the index column - repeat each row index 'count' times.
-  // Follows Java process index creation order.
+  // Create index column - repeat each row index 'count' times
   auto indexColumn = BaseVector::create<FlatVector<int32_t>>(INTEGER(), totalOutputRows, pool());
   auto* rawIndices = indexColumn->mutableRawValues();
 
@@ -138,7 +135,7 @@ std::shared_ptr<TableFunctionResult> RepeatFunctionDataProcessor::apply(
     }
   }
 
-  // Create RowVector with the index column as a child
+  // Create output RowVector
   auto rowType = ROW({INTEGER()});
   std::vector<VectorPtr> children = {indexColumn};
   RowVectorPtr outputTable = std::make_shared<RowVector>(
@@ -185,6 +182,63 @@ void registerRepeatFunction(const std::string& name) {
           -> std::unique_ptr<TableFunctionDataProcessor> {
         return std::make_unique<RepeatFunctionDataProcessor>(
             dynamic_cast<const RepeatFunctionHandle*>(handle.get()), pool);
+      });
+}
+
+std::shared_ptr<TableFunctionResult> IdentityPassThroughFunctionDataProcessor::apply(
+    const std::vector<velox::RowVectorPtr>& input) {
+  auto inputTable = input.at(0);
+  
+  // Handle null input table (happens when partition has 0 rows)
+  auto numRows = inputTable ? inputTable->size() : 0;
+
+  // Create index column with identity mapping (0, 1, 2, ...)
+  auto indexColumn = BaseVector::create<FlatVector<int32_t>>(INTEGER(), numRows, pool());
+
+  if (numRows > 0) {
+    auto* rawIndices = indexColumn->mutableRawValues();
+    std::iota(rawIndices, rawIndices + numRows, 0);
+  }
+
+  // Create output RowVector
+  auto rowType = ROW({INTEGER()});
+  std::vector<VectorPtr> children = {indexColumn};
+  RowVectorPtr outputTable = std::make_shared<RowVector>(
+      pool(), rowType, BufferPtr(nullptr), numRows, std::move(children));
+
+  return std::make_shared<TableFunctionResult>(true, std::move(outputTable));
+}
+
+std::unique_ptr<IdentityPassThroughFunctionAnalysis> IdentityPassThroughFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  auto input = std::dynamic_pointer_cast<TableArgument>(args.at("INPUT"));
+
+  // Per spec, function must require at least one column (index 0)
+  RequiredColumnsMap requiredColumns{{"INPUT", {0}}};
+
+  auto analysis = std::make_unique<IdentityPassThroughFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<IdentityPassThroughFunctionHandle>();
+  analysis->requiredColumns_ = requiredColumns;
+  return analysis;
+}
+
+void registerIdentityPassThroughFunction(const std::string& name) {
+  TableArgumentSpecList argSpecs;
+  argSpecs.insert(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT", false, false, true));
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<OnlyPassThroughReturnTypeSpecification>(),
+      IdentityPassThroughFunction::analyze,
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionDataProcessor> {
+        return std::make_unique<IdentityPassThroughFunctionDataProcessor>(
+            dynamic_cast<const IdentityPassThroughFunctionHandle*>(handle.get()), pool);
       });
 }
 

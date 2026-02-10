@@ -178,5 +178,54 @@ class RepeatFunction final : public TableFunction {
 };
 
 void registerRepeatFunction(const std::string& name);
+
+class IdentityPassThroughFunctionHandle : public TableFunctionHandle {
+ public:
+  std::string_view name() const override {
+    return "IdentityPassThroughFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  };
+
+  static std::shared_ptr<IdentityPassThroughFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::shared_ptr<IdentityPassThroughFunctionHandle>();
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("IdentityPassThroughFunctionHandle", create);
+  }
+};
+
+class IdentityPassThroughFunctionAnalysis : public TableFunctionAnalysis {};
+
+class IdentityPassThroughFunctionDataProcessor : public TableFunctionDataProcessor {
+ public:
+  explicit IdentityPassThroughFunctionDataProcessor(
+      const IdentityPassThroughFunctionHandle* handle,
+      memory::MemoryPool* pool)
+      : TableFunctionDataProcessor("identity_pass_through", pool, nullptr),
+        handle_(handle) {}
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const std::vector<velox::RowVectorPtr>& input) override;
+
+ private:
+  const IdentityPassThroughFunctionHandle* handle_;
+};
+
+class IdentityPassThroughFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<IdentityPassThroughFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+};
+
+void registerIdentityPassThroughFunction(const std::string& name);
 } // namespace facebook::presto::tvf
 
