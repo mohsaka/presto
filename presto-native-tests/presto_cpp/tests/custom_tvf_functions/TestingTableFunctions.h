@@ -19,28 +19,41 @@ using namespace facebook::velox;
 
 namespace facebook::presto::tvf {
 
+// Operator-based version of SimpleTableFunction
 class SimpleTableFunctionHandle : public TableFunctionHandle {
  public:
+  explicit SimpleTableFunctionHandle(const std::string& columnName)
+      : columnName_(columnName) {}
+
   std::string_view name() const override {
     return "SimpleTableFunctionHandle";
-  };
+  }
 
   folly::dynamic serialize() const override {
     folly::dynamic obj = folly::dynamic::object;
     obj["name"] = fmt::format("{}", name());
+    obj["columnName"] = columnName_;
     return obj;
-  };
+  }
 
   static std::shared_ptr<SimpleTableFunctionHandle> create(
       const folly::dynamic& obj,
       void* context) {
-    return std::shared_ptr<SimpleTableFunctionHandle>();
-  };
+    return std::make_shared<SimpleTableFunctionHandle>(
+        obj["columnName"].asString());
+  }
 
   static void registerSerDe() {
     auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
     registry.Register("SimpleTableFunctionHandle", create);
   }
+
+  const std::string& columnName() const {
+    return columnName_;
+  }
+
+ private:
+  std::string columnName_;
 };
 
 class SimpleTableFunctionAnalysis : public TableFunctionAnalysis {};
@@ -49,6 +62,12 @@ class SimpleTableFunction final : public TableFunction {
  public:
   static std::unique_ptr<SimpleTableFunctionAnalysis> analyze(
       const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+
+  static std::vector<TableSplitHandlePtr> getSplits(
+      const TableFunctionHandlePtr& handle) {
+    // Return empty vector - no splits means no rows
+    return std::vector<TableSplitHandlePtr>();
+  }
 };
 
 void registerSimpleTableFunction(const std::string& name);
@@ -161,4 +180,3 @@ class RepeatFunction final : public TableFunction {
 void registerRepeatFunction(const std::string& name);
 } // namespace facebook::presto::tvf
 
-// Made with Bob

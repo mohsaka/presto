@@ -17,6 +17,8 @@ import com.facebook.presto.common.predicate.Primitives;
 import com.facebook.presto.common.type.Type;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 import jakarta.annotation.Nullable;
 
 import static com.facebook.presto.spi.function.table.Preconditions.checkArgument;
@@ -74,6 +76,9 @@ public class ScalarArgumentSpecification
             }
             else if (javaType == boolean.class || javaType == Boolean.class) {
                 return Boolean.parseBoolean(stringValue);
+            }
+            else if (javaType == Slice.class) {
+                return Slices.utf8Slice(stringValue);
             }
         }
 

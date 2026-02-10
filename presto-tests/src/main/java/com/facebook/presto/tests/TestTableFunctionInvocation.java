@@ -165,18 +165,13 @@ public class TestTableFunctionInvocation
     @Test
     public void testPrimitiveDefaultArgument()
     {
-        Session session =
-                Session.builder(getSession())
-                        .setSystemProperty("verbose_optimizer_info_enabled", "true")
-                        .build();
-        MaterializedResult result = computeActual(session, "EXPLAIN SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column', ignored => 1))");
         assertQuery("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column', ignored => 1))", "SELECT true WHERE false");
 
         // skip the `ignored` argument.
         assertQuery("SELECT boolean_column FROM TABLE(system.simple_table_function(column => 'boolean_column'))",
                 "SELECT true WHERE false");
     }
-/*
+
     @Test
     public void testNoArgumentsPassed()
     {

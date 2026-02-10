@@ -115,35 +115,35 @@ public class TestDynamicTableFunctions
     {
         // Test repeating a simple table
         assertQuery(
-                "SELECT * FROM TABLE(repeat_table_function(" +
+                "SELECT * FROM TABLE(repeat(" +
                         "    INPUT => TABLE(SELECT 1 as x, 'a' as y), " +
                         "    COUNT => 3))",
                 "VALUES (1, 'a'), (1, 'a'), (1, 'a')");
 
         // Test with multiple input rows
         assertQuery(
-                "SELECT * FROM TABLE(repeat_table_function(" +
+                "SELECT * FROM TABLE(repeat(" +
                         "    INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b')) t(x, y)), " +
                         "    COUNT => 2))",
                 "VALUES (1, 'a'), (1, 'a'), (2, 'b'), (2, 'b')");
 
         // Test with COUNT = 1 (should return original rows)
         assertQuery(
-                "SELECT * FROM TABLE(repeat_table_function(" +
+                "SELECT * FROM TABLE(repeat(" +
                         "    INPUT => TABLE(SELECT 42 as num), " +
                         "    COUNT => 1))",
                 "VALUES 42");
 
         // Test with larger COUNT
         assertQuery(
-                "SELECT count(*) FROM TABLE(repeat_table_function(" +
+                "SELECT count(*) FROM TABLE(repeat(" +
                         "    INPUT => TABLE(SELECT * FROM (VALUES 1, 2, 3) t(x)), " +
                         "    COUNT => 5))",
                 "VALUES 15");
 
         // Test with multiple input rows no count argument
         assertQuery(
-                "SELECT * FROM TABLE(repeat_table_function(" +
+                "SELECT * FROM TABLE(repeat(" +
                         "    INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b')) t(x, y))))",
                 "VALUES (1, 'a'), (1, 'a'), (2, 'b'), (2, 'b')");
     }
@@ -153,41 +153,27 @@ public class TestDynamicTableFunctions
     {
         // Test identity with single column
         assertQuery(
-                "SELECT * FROM TABLE(identity_table_function(" +
+                "SELECT * FROM TABLE(identity_function(" +
                         "    INPUT => TABLE(SELECT 1 as x)))",
                 "VALUES 1");
 
         // Test identity with multiple columns
         assertQuery(
-                "SELECT * FROM TABLE(identity_table_function(" +
+                "SELECT * FROM TABLE(identity_function(" +
                         "    INPUT => TABLE(SELECT 1 as x, 'hello' as y, true as z)))",
                 "VALUES (1, 'hello', true)");
 
         // Test identity with multiple rows
         assertQuery(
-                "SELECT * FROM TABLE(identity_table_function(" +
+                "SELECT * FROM TABLE(identity_function(" +
                         "    INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c')) t(num, letter))))",
                 "VALUES (1, 'a'), (2, 'b'), (3, 'c')");
 
         // Test identity preserves order
         assertQuery(
-                "SELECT * FROM TABLE(identity_table_function(" +
+                "SELECT * FROM TABLE(identity_function(" +
                         "    INPUT => TABLE(SELECT * FROM (VALUES 5, 3, 1, 4, 2) t(x) ORDER BY x)))",
                 "VALUES 1, 2, 3, 4, 5");
-    }
-
-    @Test
-    public void testSimpleTableFunction()
-    {
-        // Test simple table function with column name
-        assertQuery(
-                "SELECT * FROM TABLE(simple_table_function(COLUMN => 'test_col'))",
-                "SELECT test_col FROM (VALUES true) t(test_col)");
-
-        // Test with different column name
-        assertQuery(
-                "SELECT * FROM TABLE(simple_table_function(COLUMN => 'my_boolean'))",
-                "SELECT my_boolean FROM (VALUES true) t(my_boolean)");
     }
 
     // Tests from TestTableFunctionInvocation
@@ -211,11 +197,11 @@ public class TestDynamicTableFunctions
     @Test
     public void testIdentityFunction()
     {
-        assertQuery("SELECT b, a FROM TABLE(identity_table_function(input => TABLE(VALUES (1, 2), (3, 4), (5, 6)) T(a, b)))",
+        assertQuery("SELECT b, a FROM TABLE(identity_function(input => TABLE(VALUES (1, 2), (3, 4), (5, 6)) T(a, b)))",
                 "VALUES (2, 1), (4, 3), (6, 5)");
 
         // null partitioning value
-        assertQuery("SELECT i.b, a FROM TABLE(identity_table_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b)) i",
+        assertQuery("SELECT i.b, a FROM TABLE(identity_function(input => TABLE(VALUES ('x', 1), ('y', 2), ('z', null)) T(a, b) PARTITION BY b)) i",
                 "VALUES (1, 'x'), (2, 'y'), (null, 'z')");
     }
 
@@ -223,30 +209,30 @@ public class TestDynamicTableFunctions
     public void testRepeatFunction()
     {
         assertQuery(
-                "SELECT * FROM TABLE(repeat_table_function(" +
+                "SELECT * FROM TABLE(repeat(" +
                         "    INPUT => TABLE(" +
                         "        SELECT * FROM (VALUES (1, 2), (3, 4), (5, 6)) t(x, y)" +
                         "    ), " +
                         "    COUNT => 2))",
                 "VALUES (1, 2), (1, 2), (3, 4), (3, 4), (5, 6), (5, 6)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES (1, 2), (3, 4), (5, 6)), COUNT => 2))",
+        assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES (1, 2), (3, 4), (5, 6)), COUNT => 2))",
                 "VALUES (1, 2), (1, 2), (3, 4), (3, 4), (5, 6), (5, 6)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)), COUNT => 4))",
+        assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES ('a', true), ('b', false)), COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, COUNT => 4))",
+        assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x, COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
         // Test with 3 columns: 1 partitioning column (x) + 2 non-partitioning columns (y, z)
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true, 1), ('b', false, 2)) t(x, y, z) PARTITION BY x, COUNT => 3))",
+        assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES ('a', true, 1), ('b', false, 2)) t(x, y, z) PARTITION BY x, COUNT => 3))",
                 "VALUES ('a', true, 1), ('a', true, 1), ('a', true, 1), ('b', false, 2), ('b', false, 2), ('b', false, 2)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) ORDER BY y, COUNT => 4))",
+        assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) ORDER BY y, COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
 
-        assertQuery("SELECT * FROM TABLE(repeat_table_function(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, COUNT => 4))",
+        assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
     }
 

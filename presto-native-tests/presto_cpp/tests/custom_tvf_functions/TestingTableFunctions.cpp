@@ -22,6 +22,7 @@ using namespace facebook::velox;
 
 namespace facebook::presto::tvf {
 
+// Operator-based SimpleTableFunction implementation
 std::unique_ptr<SimpleTableFunctionAnalysis> SimpleTableFunction::analyze(
     const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
   std::vector<std::string> returnNames;
@@ -35,7 +36,7 @@ std::unique_ptr<SimpleTableFunctionAnalysis> SimpleTableFunction::analyze(
 
   auto analysis = std::make_unique<SimpleTableFunctionAnalysis>();
   analysis->tableFunctionHandle_ =
-      std::make_shared<SimpleTableFunctionHandle>();
+      std::make_shared<SimpleTableFunctionHandle>(std::string(val));
   analysis->returnType_ =
       std::make_shared<Descriptor>(returnNames, returnTypes);
   return analysis;
@@ -44,7 +45,7 @@ std::unique_ptr<SimpleTableFunctionAnalysis> SimpleTableFunction::analyze(
 void registerSimpleTableFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
   argSpecs.insert(
-      std::make_shared<ScalarArgumentSpecification>("COLUMN", VARCHAR(), true));
+      std::make_shared<ScalarArgumentSpecification>("COLUMN", VARCHAR(), false, "col"));
   argSpecs.insert(
       std::make_shared<ScalarArgumentSpecification>(
           "IGNORED", BIGINT(), false, "0"));
@@ -53,7 +54,10 @@ void registerSimpleTableFunction(const std::string& name) {
       name,
       argSpecs,
       std::make_shared<GenericTableReturnTypeSpecification>(),
-      SimpleTableFunction::analyze);
+      SimpleTableFunction::analyze,
+      TableFunction::defaultCreateDataProcessor,
+      TableFunction::defaultCreateSplitProcessor,
+      SimpleTableFunction::getSplits);
 }
 
 std::shared_ptr<TableFunctionResult> IdentityDataProcessor::apply(
@@ -186,4 +190,3 @@ void registerRepeatFunction(const std::string& name) {
 
 } // namespace facebook::presto::tvf
 
-// Made with Bob

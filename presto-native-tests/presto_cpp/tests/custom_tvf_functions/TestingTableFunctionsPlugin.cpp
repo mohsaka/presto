@@ -26,13 +26,13 @@ extern "C" {
 // The function registerExtensions is the entry point to execute the
 // registration of the table functions and cannot be changed.
 void registerExtensions() {
-  facebook::presto::tvf::registerRepeatFunction("presto.default.repeat_table_function");
-  facebook::presto::tvf::registerIdentityFunction("presto.default.identity_table_function");
   facebook::presto::tvf::registerSimpleTableFunction("presto.default.simple_table_function");
+  facebook::presto::tvf::registerRepeatFunction("presto.default.repeat");
+  facebook::presto::tvf::registerIdentityFunction("presto.default.identity_function");
 
+  facebook::presto::tvf::SimpleTableFunctionHandle::registerSerDe();
   facebook::presto::tvf::RepeatFunctionHandle::registerSerDe();
   facebook::presto::tvf::IdentityFunctionHandle::registerSerDe();
-  facebook::presto::tvf::SimpleTableFunctionHandle::registerSerDe();
 }
 }
 
