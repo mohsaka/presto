@@ -227,5 +227,54 @@ class IdentityPassThroughFunction final : public TableFunction {
 };
 
 void registerIdentityPassThroughFunction(const std::string& name);
+
+class EmptyOutputFunctionHandle : public TableFunctionHandle {
+ public:
+  std::string_view name() const override {
+    return "EmptyOutputFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  };
+
+  static std::shared_ptr<EmptyOutputFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::shared_ptr<EmptyOutputFunctionHandle>();
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("EmptyOutputFunctionHandle", create);
+  }
+};
+
+class EmptyOutputFunctionAnalysis : public TableFunctionAnalysis {};
+
+class EmptyOutputFunctionDataProcessor : public TableFunctionDataProcessor {
+ public:
+  explicit EmptyOutputFunctionDataProcessor(
+      const EmptyOutputFunctionHandle* handle,
+      memory::MemoryPool* pool)
+      : TableFunctionDataProcessor("empty_output", pool, nullptr),
+        handle_(handle) {}
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const std::vector<velox::RowVectorPtr>& input) override;
+
+ private:
+  const EmptyOutputFunctionHandle* handle_;
+};
+
+class EmptyOutputFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<EmptyOutputFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+};
+
+void registerEmptyOutputFunction(const std::string& name);
 } // namespace facebook::presto::tvf
 

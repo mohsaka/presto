@@ -242,5 +242,64 @@ void registerIdentityPassThroughFunction(const std::string& name) {
       });
 }
 
+std::shared_ptr<TableFunctionResult> EmptyOutputFunctionDataProcessor::apply(
+    const std::vector<velox::RowVectorPtr>& input) {
+  auto inputTable = input.at(0);
+  
+  // Return empty output (0 rows, 1 BOOLEAN column) for each input page
+  // This matches the Java implementation which returns an empty Page
+  auto rowType = ROW({BOOLEAN()});
+  std::vector<VectorPtr> children = {
+      BaseVector::create<FlatVector<bool>>(BOOLEAN(), 0, pool())};
+  RowVectorPtr outputTable = std::make_shared<RowVector>(
+      pool(), rowType, BufferPtr(nullptr), 0, std::move(children));
+
+  return std::make_shared<TableFunctionResult>(true, std::move(outputTable));
+}
+
+std::unique_ptr<EmptyOutputFunctionAnalysis> EmptyOutputFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  auto input = std::dynamic_pointer_cast<TableArgument>(args.at("INPUT"));
+
+  // Require all input columns (per Java implementation)
+  std::vector<column_index_t> requiredColsList;
+  for (size_t i = 0; i < input->rowType()->size(); i++) {
+    requiredColsList.push_back(i);
+  }
+  RequiredColumnsMap requiredColumns;
+  requiredColumns.emplace("INPUT", requiredColsList);
+
+  auto analysis = std::make_unique<EmptyOutputFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<EmptyOutputFunctionHandle>();
+  analysis->requiredColumns_ = requiredColumns;
+  return analysis;
+}
+
+void registerEmptyOutputFunction(const std::string& name) {
+  TableArgumentSpecList argSpecs;
+  argSpecs.insert(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT", false, false, false));  // rowSemantics=false, pruneWhenEmpty=false (keepWhenEmpty), passThroughColumns=false
+  
+  // Create descriptor for the return type: single BOOLEAN column named "column"
+  std::vector<std::string> returnNames = {"column"};
+  std::vector<TypePtr> returnTypes = {BOOLEAN()};
+  auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      EmptyOutputFunction::analyze,
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionDataProcessor> {
+        return std::make_unique<EmptyOutputFunctionDataProcessor>(
+            dynamic_cast<const EmptyOutputFunctionHandle*>(handle.get()), pool);
+      });
+}
+
 } // namespace facebook::presto::tvf
 

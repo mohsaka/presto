@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.tests;
 
-import com.facebook.presto.Session;
 import com.facebook.presto.connector.tvf.TestTVFConnectorColumnHandle;
 import com.facebook.presto.connector.tvf.TestTVFConnectorFactory;
 import com.facebook.presto.connector.tvf.TestTVFConnectorPlugin;
@@ -25,7 +24,6 @@ import com.facebook.presto.spi.ConnectorTableHandle;
 import com.facebook.presto.spi.FixedSplitSource;
 import com.facebook.presto.spi.connector.TableFunctionApplicationResult;
 import com.facebook.presto.spi.function.SchemaFunctionName;
-import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tpch.TpchPlugin;
 import com.google.common.collect.ImmutableList;

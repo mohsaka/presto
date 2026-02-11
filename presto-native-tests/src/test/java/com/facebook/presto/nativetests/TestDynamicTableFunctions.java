@@ -260,6 +260,31 @@ public class TestDynamicTableFunctions
         assertQuery("SELECT * FROM TABLE(repeat(INPUT => TABLE(VALUES ('a', true), ('b', false)) t(x, y) PARTITION BY x ORDER BY y, COUNT => 4))",
                 "VALUES ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false), ('a', true), ('b', false)");
     }
+    @Test
+    public void testFunctionsReturningEmptyPages()
+    {
+        // the function empty_output returns an empty Page for each processed input Page. the argument has KEEP WHEN EMPTY property
+
+        // non-empty input, no pass-through columns
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT 1 as x, 'a' as y)))",
+                "SELECT true WHERE false");
+
+        // non-empty input, pass-through partitioning column
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b')) t(x, y)) PARTITION BY x))",
+                "SELECT true WHERE false");
+
+        // empty input, no pass-through columns
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT 1 WHERE false)))",
+                "SELECT true WHERE false");
+
+        // empty input, pass-through partitioning column
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a')) t(x, y) WHERE false) PARTITION BY x))",
+                "SELECT true WHERE false");
+    }
 
     private static Path getLocalPluginDirectory()
     {
