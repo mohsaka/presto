@@ -304,6 +304,11 @@ public class TestDynamicTableFunctions
         assertQuery(
                 "SELECT * FROM TABLE(empty_output_with_pass_through(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a')) t(x, y) WHERE false) PARTITION BY x))",
                 "SELECT true, 1, 'a' WHERE false");
+
+        // Source function with no input arguments
+        assertQuery(
+                "SELECT * FROM TABLE(empty_source())",
+                "SELECT true WHERE false");
     }
 
     private static Path getLocalPluginDirectory()

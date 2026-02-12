@@ -324,6 +324,84 @@ class EmptyOutputWithPassThroughFunction final : public TableFunction {
       const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
 };
 
+// EmptySourceFunction - A source function that takes no input and returns empty pages
+// This is a split-based function (uses TableFunctionSplitProcessor)
+class EmptySourceFunctionHandle : public TableFunctionHandle {
+ public:
+  std::string_view name() const override {
+    return "EmptySourceFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  };
+
+  static std::shared_ptr<EmptySourceFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::shared_ptr<EmptySourceFunctionHandle>();
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("EmptySourceFunctionHandle", create);
+  }
+};
+
+class EmptySourceFunctionSplitHandle : public TableSplitHandle {
+ public:
+  std::string_view name() const override {
+    return "EmptySourceFunctionSplitHandle";
+  }
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  }
+
+  static std::shared_ptr<EmptySourceFunctionSplitHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::make_shared<EmptySourceFunctionSplitHandle>();
+  }
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("EmptySourceFunctionSplitHandle", create);
+  }
+};
+
+class EmptySourceFunctionAnalysis : public TableFunctionAnalysis {};
+
+class EmptySourceFunctionSplitProcessor : public TableFunctionSplitProcessor {
+ public:
+  explicit EmptySourceFunctionSplitProcessor(
+      const EmptySourceFunctionHandle* handle,
+      memory::MemoryPool* pool)
+      : TableFunctionSplitProcessor("empty_source", pool, nullptr),
+        handle_(handle) {}
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const TableSplitHandlePtr& split) override;
+
+ private:
+  const EmptySourceFunctionHandle* handle_;
+};
+
+class EmptySourceFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<EmptySourceFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+  
+  static std::vector<TableSplitHandlePtr> getSplits(
+      const TableFunctionHandlePtr& handle);
+};
+
+void registerEmptySourceFunction(const std::string& name);
+
 void registerEmptyOutputWithPassThroughFunction(const std::string& name);
 } // namespace facebook::presto::tvf
 

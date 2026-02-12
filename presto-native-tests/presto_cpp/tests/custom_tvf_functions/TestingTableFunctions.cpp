@@ -305,8 +305,6 @@ std::shared_ptr<TableFunctionResult> EmptyOutputWithPassThroughFunctionDataProce
     const std::vector<velox::RowVectorPtr>& input) {
   auto inputTable = input.at(0);
   
-  LOG(INFO) << "EmptyOutputWithPassThroughFunction::apply called";
-  
   // Handle null input (empty partition)
   if (!inputTable) {
     return std::make_shared<TableFunctionResult>(true, nullptr);
@@ -373,6 +371,61 @@ void registerEmptyOutputWithPassThroughFunction(const std::string& name) {
             dynamic_cast<const EmptyOutputWithPassThroughFunctionHandle*>(handle.get()), pool);
       });
 }
+// EmptySourceFunction implementation
+std::shared_ptr<TableFunctionResult> EmptySourceFunctionSplitProcessor::apply(
+    const TableSplitHandlePtr& split) {
+  
+  // Return kFinished state to indicate we're done (no rows to produce)
+  // This matches the Java implementation which returns empty results
+  return std::make_shared<TableFunctionResult>(
+      TableFunctionResult::TableFunctionState::kFinished);
+}
+
+std::vector<TableSplitHandlePtr> EmptySourceFunction::getSplits(
+    const TableFunctionHandlePtr& handle) {
+  // Return empty vector - no splits means no rows
+  return std::vector<TableSplitHandlePtr>();
+}
+
+std::unique_ptr<EmptySourceFunctionAnalysis> EmptySourceFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  // No input arguments for source function
+  
+  // Return type is specified in DescribedTableReturnTypeSpecification at registration
+  // Do not set returnType_ here to avoid ambiguity
+
+  auto analysis = std::make_unique<EmptySourceFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<EmptySourceFunctionHandle>();
+  // No required columns since there are no input arguments
+  return analysis;
+}
+
+void registerEmptySourceFunction(const std::string& name) {
+  // Source functions have no table arguments
+  TableArgumentSpecList argSpecs;
+  
+  // Create descriptor for the return type: single BOOLEAN column named "column"
+  std::vector<std::string> returnNames = {"column"};
+  std::vector<TypePtr> returnTypes = {BOOLEAN()};
+  auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      EmptySourceFunction::analyze,
+      TableFunction::defaultCreateDataProcessor,  // No data processor
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionSplitProcessor> {
+        return std::make_unique<EmptySourceFunctionSplitProcessor>(
+            dynamic_cast<const EmptySourceFunctionHandle*>(handle.get()), pool);
+      },
+      EmptySourceFunction::getSplits);  // Add getSplits function
+}
+
 
 } // namespace facebook::presto::tvf
 
