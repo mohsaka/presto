@@ -255,8 +255,28 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
   if (isOnlyPassThrough) {
     VELOX_CHECK_EQ(passThroughSpecifications_.size(), outputType_->size());
   } else {
+    // For functions with pass-through columns, the function output contains:
+    // - Proper columns (declared in return type)
+    // - Index columns (typically ONE index column shared by all non-partitioning pass-through columns)
+    // The outputType_ contains:
+    // - Proper columns + pass-through columns
+    // So we need to calculate the number of proper columns by subtracting
+    // the number of index columns from the function output size.
+    
+    // Determine if there are any non-partitioning pass-through columns
+    // If so, there's typically ONE index column in the function output
+    bool hasIndexColumn = false;
+    for (const auto& spec : passThroughSpecifications_) {
+      if (!spec.isPartitioningColumn()) {
+        hasIndexColumn = true;
+        break;
+      }
+    }
+    
+    size_t numIndexColumns = hasIndexColumn ? 1 : 0;
+    size_t numProperColumns = functionOutput->children().size() - numIndexColumns;
     VELOX_CHECK_EQ(
-        functionOutput->children().size() + passThroughSpecifications_.size(),
+        numProperColumns + passThroughSpecifications_.size(),
         outputType_->size());
   }
   
@@ -285,12 +305,25 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
       result->childAt(spec.inputChannel()) = passThroughColumn;
     }
   } else {
-    // For regular functions, copy function output columns first, then pass-through
-    for (int i = 0; i < functionOutput->children().size(); i++) {
+    // For functions with pass-through, copy only the proper columns (not index columns)
+    // The function output contains: proper columns + index column(s)
+    // Typically there's ONE index column shared by all non-partitioning pass-through columns
+    bool hasIndexColumn = false;
+    for (const auto& spec : passThroughSpecifications_) {
+      if (!spec.isPartitioningColumn()) {
+        hasIndexColumn = true;
+        break;
+      }
+    }
+    
+    size_t numIndexColumns = hasIndexColumn ? 1 : 0;
+    size_t numProperColumns = functionOutput->children().size() - numIndexColumns;
+
+    for (size_t i = 0; i < numProperColumns; i++) {
       result->childAt(i) = functionOutput->childAt(i);
     }
 
-    // Copy passthrough columns.
+    // Copy passthrough columns using index columns from function output
     for (const auto& spec : passThroughSpecifications_) {
       auto passThroughColumn = BaseVector::create(
           outputType_->childAt(spec.inputChannel()), numOutputRows, pool_);

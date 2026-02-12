@@ -263,7 +263,7 @@ public class TestDynamicTableFunctions
     @Test
     public void testFunctionsReturningEmptyPages()
     {
-        // the function empty_output returns an empty Page for each processed input Page. the argument has KEEP WHEN EMPTY property
+        // the functions empty_output and empty_output_with_pass_through return an empty Page for each processed input Page. the argument has KEEP WHEN EMPTY property
 
         // non-empty input, no pass-through columns
         assertQuery(
@@ -275,6 +275,16 @@ public class TestDynamicTableFunctions
                 "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b')) t(x, y)) PARTITION BY x))",
                 "SELECT true WHERE false");
 
+        // non-empty input, argument has pass-through columns
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output_with_pass_through(INPUT => TABLE(SELECT 1 as x, 'a' as y)))",
+                "SELECT true, 1, 'a' WHERE false");
+
+        // non-empty input, argument has pass-through columns, partitioning column present
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output_with_pass_through(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a'), (2, 'b')) t(x, y)) PARTITION BY x))",
+                "SELECT true, 1, 'a' WHERE false");
+
         // empty input, no pass-through columns
         assertQuery(
                 "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT 1 WHERE false)))",
@@ -284,6 +294,16 @@ public class TestDynamicTableFunctions
         assertQuery(
                 "SELECT * FROM TABLE(empty_output(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a')) t(x, y) WHERE false) PARTITION BY x))",
                 "SELECT true WHERE false");
+
+        // empty input, argument has pass-through columns
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output_with_pass_through(INPUT => TABLE(SELECT 1 WHERE false)))",
+                "SELECT true, 1 WHERE false");
+
+        // empty input, argument has pass-through columns, partitioning column present
+        assertQuery(
+                "SELECT * FROM TABLE(empty_output_with_pass_through(INPUT => TABLE(SELECT * FROM (VALUES (1, 'a')) t(x, y) WHERE false) PARTITION BY x))",
+                "SELECT true, 1, 'a' WHERE false");
     }
 
     private static Path getLocalPluginDirectory()

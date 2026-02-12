@@ -301,5 +301,78 @@ void registerEmptyOutputFunction(const std::string& name) {
       });
 }
 
+std::shared_ptr<TableFunctionResult> EmptyOutputWithPassThroughFunctionDataProcessor::apply(
+    const std::vector<velox::RowVectorPtr>& input) {
+  auto inputTable = input.at(0);
+  
+  LOG(INFO) << "EmptyOutputWithPassThroughFunction::apply called";
+  
+  // Handle null input (empty partition)
+  if (!inputTable) {
+    return std::make_shared<TableFunctionResult>(true, nullptr);
+  }
+  
+  // Return empty output with 2 columns: 1 proper BOOLEAN + 1 pass-through BIGINT index
+  // This matches Java which returns a Page with 2 blocks, even though the return type
+  // specification only declares 1 proper column. The second column is the pass-through index.
+  auto rowType = ROW({BOOLEAN(), BIGINT()});
+  std::vector<VectorPtr> children = {
+      BaseVector::create<FlatVector<bool>>(BOOLEAN(), 0, pool()),
+      BaseVector::create<FlatVector<int64_t>>(BIGINT(), 0, pool())};
+  RowVectorPtr outputTable = std::make_shared<RowVector>(
+      pool(), rowType, BufferPtr(nullptr), 0, std::move(children));
+
+  return std::make_shared<TableFunctionResult>(true, std::move(outputTable));
+}
+
+std::unique_ptr<EmptyOutputWithPassThroughFunctionAnalysis> EmptyOutputWithPassThroughFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  auto input = std::dynamic_pointer_cast<TableArgument>(args.at("INPUT"));
+
+  // Require all input columns (per Java implementation)
+  std::vector<column_index_t> requiredColsList;
+  for (size_t i = 0; i < input->rowType()->size(); i++) {
+    requiredColsList.push_back(i);
+  }
+  RequiredColumnsMap requiredColumns;
+  requiredColumns.emplace("INPUT", requiredColsList);
+
+  // Return type is specified in DescribedTableReturnTypeSpecification at registration
+  // Do not set returnType_ here to avoid ambiguity
+  // The framework will automatically add pass-through columns
+
+  auto analysis = std::make_unique<EmptyOutputWithPassThroughFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<EmptyOutputWithPassThroughFunctionHandle>();
+  analysis->requiredColumns_ = requiredColumns;
+  return analysis;
+}
+
+void registerEmptyOutputWithPassThroughFunction(const std::string& name) {
+  TableArgumentSpecList argSpecs;
+  argSpecs.insert(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT", false, false, true));  // rowSemantics=false, pruneWhenEmpty=false (keepWhenEmpty), passThroughColumns=true
+  
+  // Create descriptor for the return type: single BOOLEAN column named "column"
+  // The framework will automatically add pass-through columns
+  std::vector<std::string> returnNames = {"column"};
+  std::vector<TypePtr> returnTypes = {BOOLEAN()};
+  auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      EmptyOutputWithPassThroughFunction::analyze,
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionDataProcessor> {
+        return std::make_unique<EmptyOutputWithPassThroughFunctionDataProcessor>(
+            dynamic_cast<const EmptyOutputWithPassThroughFunctionHandle*>(handle.get()), pool);
+      });
+}
+
 } // namespace facebook::presto::tvf
 

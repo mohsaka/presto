@@ -138,7 +138,21 @@ RowVectorPtr TableFunctionOperator::getOutputFromFunction() {
   VELOX_CHECK(
       result->state() == TableFunctionResult::TableFunctionState::kProcessed);
   auto resultRows = result->result();
-  VELOX_CHECK(resultRows);
+  
+  // Handle nullptr result (empty partition case)
+  if (!resultRows) {
+    if (result->usedInput()) {
+      // The input rows were consumed, so we need to re-assemble input at the
+      // next call.
+      if (functionInput_[0]) {
+        numPartitionProcessedRows_ += functionInput_[0]->size();
+        numProcessedRows_ += functionInput_[0]->size();
+      }
+      validFunctionInput_ = false;
+    }
+    return nullptr;
+  }
+  
   if (result->usedInput()) {
     // The input rows were consumed, so we need to re-assemble input at the
     // next call.
