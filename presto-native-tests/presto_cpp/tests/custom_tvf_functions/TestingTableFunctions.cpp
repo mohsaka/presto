@@ -426,6 +426,177 @@ void registerEmptySourceFunction(const std::string& name) {
       EmptySourceFunction::getSplits);  // Add getSplits function
 }
 
+// ConstantFunction implementation
+std::shared_ptr<TableFunctionResult> ConstantFunctionSplitProcessor::apply(
+    const TableSplitHandlePtr& split) {
+  bool usedData = false;
+
+  // NOTE: The C++ framework passes the split on every apply() call until kFinished is returned.
+  // This differs from Java where the split is passed once and subsequent calls receive null.
+  // We use initialized_ flag to ensure we only process the split data once, preventing
+  // state variables (fullPagesCount_, processedPages_, reminder_) from resetting on each call.
+  if (split != nullptr && !initialized_) {
+    auto constantSplit = dynamic_cast<const ConstantFunctionSplitHandle*>(split.get());
+    int32_t count = constantSplit->count();
+    fullPagesCount_ = count / PAGE_SIZE;
+    reminder_ = count % PAGE_SIZE;
+    initialized_ = true;
+    if (fullPagesCount_ > 0) {
+      auto flatVector = BaseVector::create<FlatVector<int32_t>>(INTEGER(), PAGE_SIZE, pool());
+      
+      if (!handle_->value().has_value()) {
+        // Set all values to null
+        for (int32_t i = 0; i < PAGE_SIZE; i++) {
+          flatVector->setNull(i, true);
+        }
+      } else {
+        // Set all values to the constant
+        auto* rawValues = flatVector->mutableRawValues();
+        int32_t value = static_cast<int32_t>(handle_->value().value());
+        for (int32_t i = 0; i < PAGE_SIZE; i++) {
+          rawValues[i] = value;
+        }
+      }
+      block_ = flatVector;
+    } else {
+      auto flatVector = BaseVector::create<FlatVector<int32_t>>(INTEGER(), reminder_, pool());
+      
+      if (!handle_->value().has_value()) {
+        // Set all values to null
+        for (int32_t i = 0; i < reminder_; i++) {
+          flatVector->setNull(i, true);
+        }
+      } else {
+        // Set all values to the constant
+        auto* rawValues = flatVector->mutableRawValues();
+        int32_t value = static_cast<int32_t>(handle_->value().value());
+        for (int32_t i = 0; i < reminder_; i++) {
+          rawValues[i] = value;
+        }
+      }
+      block_ = flatVector;
+    }
+    usedData = true;
+  }
+
+  if (processedPages_ < fullPagesCount_) {
+    processedPages_++;
+    auto rowType = ROW({INTEGER()});
+    std::vector<VectorPtr> children = {block_};
+    RowVectorPtr outputTable = std::make_shared<RowVector>(
+        pool(), rowType, BufferPtr(nullptr), PAGE_SIZE, std::move(children));
+    
+    if (usedData) {
+      return std::make_shared<TableFunctionResult>(true, std::move(outputTable));
+    }
+    return std::make_shared<TableFunctionResult>(false, std::move(outputTable));
+  }
+
+  if (reminder_ > 0) {
+    // If fullPagesCount_ > 0, we need to slice the PAGE_SIZE block to get the reminder
+    // If fullPagesCount_ == 0, the block is already reminder_ size, so use it directly
+    VectorPtr outputVector;
+    if (fullPagesCount_ > 0) {
+      outputVector = block_->slice(0, reminder_);
+    } else {
+      outputVector = block_;
+    }
+    
+    auto rowType = ROW({INTEGER()});
+    std::vector<VectorPtr> children = {outputVector};
+    RowVectorPtr outputTable = std::make_shared<RowVector>(
+        pool(), rowType, BufferPtr(nullptr), reminder_, std::move(children));
+    reminder_ = 0;
+    
+    if (usedData) {
+      return std::make_shared<TableFunctionResult>(true, std::move(outputTable));
+    }
+    return std::make_shared<TableFunctionResult>(false, std::move(outputTable));
+  }
+
+  return std::make_shared<TableFunctionResult>(
+      TableFunctionResult::TableFunctionState::kFinished);
+}
+
+std::vector<TableSplitHandlePtr> ConstantFunction::getSplits(
+    const TableFunctionHandlePtr& handle) {
+  auto constantHandle = dynamic_cast<const ConstantFunctionHandle*>(handle.get());
+  constexpr int32_t DEFAULT_SPLIT_SIZE = 5500;
+  
+  std::vector<TableSplitHandlePtr> splits;
+  int32_t count = constantHandle->count();
+  
+  for (int32_t i = 0; i < count / DEFAULT_SPLIT_SIZE; i++) {
+    splits.push_back(std::make_shared<ConstantFunctionSplitHandle>(DEFAULT_SPLIT_SIZE));
+  }
+  
+  int32_t remainingSize = count % DEFAULT_SPLIT_SIZE;
+  if (remainingSize > 0) {
+    splits.push_back(std::make_shared<ConstantFunctionSplitHandle>(remainingSize));
+  }
+  
+  return splits;
+}
+
+std::unique_ptr<ConstantFunctionAnalysis> ConstantFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  // Get VALUE argument (can be null)
+  auto valueArg = std::dynamic_pointer_cast<ScalarArgument>(args.at("VALUE"));
+  std::optional<int32_t> value;
+  
+  // Check if the value vector exists and is not null at position 0
+  // INTEGER type in Presto maps to int32_t in Velox
+  auto valueVector = valueArg->value();
+  if (valueVector) {
+    auto constantVec = valueVector->as<ConstantVector<int32_t>>();
+    if (constantVec && !constantVec->isNullAt(0)) {
+      value = constantVec->valueAt(0);
+    }
+  }
+  
+  // Get N argument (count) - also INTEGER type (int32_t)
+  auto countArg = std::dynamic_pointer_cast<ScalarArgument>(args.at("N"));
+  auto countVector = countArg->value();
+  VELOX_CHECK_NOT_NULL(countVector, "count value for function constant() is null");
+  int32_t count = countVector->as<ConstantVector<int32_t>>()->valueAt(0);
+  
+  VELOX_CHECK_GT(count, 0, "count value for function constant() must be positive");
+  
+  auto analysis = std::make_unique<ConstantFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<ConstantFunctionHandle>(value, count);
+  return analysis;
+}
+
+void registerConstantFunction(const std::string& name) {
+  // Source functions have no table arguments
+  TableArgumentSpecList argSpecs;
+  argSpecs.insert(
+      std::make_shared<ScalarArgumentSpecification>("VALUE", INTEGER(), false));
+  argSpecs.insert(
+      std::make_shared<ScalarArgumentSpecification>("N", INTEGER(), false, "1"));
+  
+  // Create descriptor for the return type: single INTEGER column named "constant_column"
+  std::vector<std::string> returnNames = {"constant_column"};
+  std::vector<TypePtr> returnTypes = {INTEGER()};
+  auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      ConstantFunction::analyze,
+      TableFunction::defaultCreateDataProcessor,  // No data processor
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionSplitProcessor> {
+        return std::make_unique<ConstantFunctionSplitProcessor>(
+            dynamic_cast<const ConstantFunctionHandle*>(handle.get()), pool);
+      },
+      ConstantFunction::getSplits);
+}
+
 
 } // namespace facebook::presto::tvf
 

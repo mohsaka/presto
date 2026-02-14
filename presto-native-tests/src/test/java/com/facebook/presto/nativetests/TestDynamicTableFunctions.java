@@ -311,6 +311,40 @@ public class TestDynamicTableFunctions
                 "SELECT true WHERE false");
     }
 
+    @Test
+    public void testConstantFunction()
+    {
+        // Test with a simple constant value
+        assertQuery(
+                "SELECT * FROM TABLE(constant(VALUE => 42, N => 5))",
+                "VALUES 42, 42, 42, 42, 42");
+
+        // Test with default N value (should be 1)
+        assertQuery(
+                "SELECT * FROM TABLE(constant(VALUE => 100))",
+                "VALUES 100");
+
+        // Test with NULL value
+        assertQuery(
+                "SELECT * FROM TABLE(constant(VALUE => NULL, N => 3))",
+                "VALUES NULL, NULL, NULL");
+
+        // Test with larger count
+        assertQuery(
+                "SELECT count(*) FROM TABLE(constant(VALUE => 7, N => 10000))",
+                "VALUES 10000");
+
+        // Test that all values are the same constant
+        assertQuery(
+                "SELECT DISTINCT constant_column FROM TABLE(constant(VALUE => 99, N => 100))",
+                "VALUES 99");
+
+        // Test with N = 1
+        assertQuery(
+                "SELECT * FROM TABLE(constant(VALUE => 1, N => 1))",
+                "VALUES 1");
+    }
+
     private static Path getLocalPluginDirectory()
     {
         Path prestoRoot = findPrestoRoot();

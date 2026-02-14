@@ -403,5 +403,129 @@ class EmptySourceFunction final : public TableFunction {
 void registerEmptySourceFunction(const std::string& name);
 
 void registerEmptyOutputWithPassThroughFunction(const std::string& name);
+
+// ConstantFunction - A source function that generates constant values
+// This is a split-based function (uses TableFunctionSplitProcessor)
+class ConstantFunctionHandle : public TableFunctionHandle {
+ public:
+  ConstantFunctionHandle(std::optional<int32_t> value, int32_t count)
+      : value_(value), count_(count) {}
+
+  std::string_view name() const override {
+    return "ConstantFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    if (value_.has_value()) {
+      obj["value"] = value_.value();
+    } else {
+      obj["value"] = nullptr;
+    }
+    obj["count"] = count_;
+    return obj;
+  };
+
+  static std::shared_ptr<ConstantFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    std::optional<int32_t> value;
+    if (!obj["value"].isNull()) {
+      value = obj["value"].asInt();
+    }
+    return std::make_shared<ConstantFunctionHandle>(value, obj["count"].asInt());
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("ConstantFunctionHandle", create);
+  }
+
+  std::optional<int32_t> value() const {
+    return value_;
+  }
+
+  int32_t count() const {
+    return count_;
+  }
+
+ private:
+  std::optional<int32_t> value_;
+  int32_t count_;
+};
+
+class ConstantFunctionSplitHandle : public TableSplitHandle {
+ public:
+  explicit ConstantFunctionSplitHandle(int32_t count) : count_(count) {}
+
+  std::string_view name() const override {
+    return "ConstantFunctionSplitHandle";
+  }
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    obj["count"] = count_;
+    return obj;
+  }
+
+  static std::shared_ptr<ConstantFunctionSplitHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::make_shared<ConstantFunctionSplitHandle>(obj["count"].asInt());
+  }
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("ConstantFunctionSplitHandle", create);
+  }
+
+  int32_t count() const {
+    return count_;
+  }
+
+ private:
+  int32_t count_;
+};
+
+class ConstantFunctionAnalysis : public TableFunctionAnalysis {};
+
+class ConstantFunctionSplitProcessor : public TableFunctionSplitProcessor {
+ public:
+  ConstantFunctionSplitProcessor(
+      const ConstantFunctionHandle* handle,
+      memory::MemoryPool* pool)
+      : TableFunctionSplitProcessor("constant", pool, nullptr),
+        handle_(handle),
+        fullPagesCount_(0),
+        processedPages_(0),
+        reminder_(0),
+        initialized_(false) {}
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const TableSplitHandlePtr& split) override;
+
+ private:
+  static constexpr int32_t PAGE_SIZE = 1000;
+  const ConstantFunctionHandle* handle_;
+  int32_t fullPagesCount_;
+  int32_t processedPages_;
+  int32_t reminder_;
+  VectorPtr block_;
+  bool initialized_;
+};
+
+class ConstantFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<ConstantFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+  
+  static std::vector<TableSplitHandlePtr> getSplits(
+      const TableFunctionHandlePtr& handle);
+};
+
+void registerConstantFunction(const std::string& name);
+
 } // namespace facebook::presto::tvf
 
