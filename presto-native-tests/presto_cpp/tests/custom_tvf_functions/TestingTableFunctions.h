@@ -527,5 +527,55 @@ class ConstantFunction final : public TableFunction {
 
 void registerConstantFunction(const std::string& name);
 
+// TestSingleInputFunction - A row semantics function that takes a table input
+// and returns a single boolean column with value true for each input row
+class TestSingleInputFunctionHandle : public TableFunctionHandle {
+ public:
+  std::string_view name() const override {
+    return "TestSingleInputFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  };
+
+  static std::shared_ptr<TestSingleInputFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::shared_ptr<TestSingleInputFunctionHandle>();
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("TestSingleInputFunctionHandle", create);
+  }
+};
+
+class TestSingleInputFunctionAnalysis : public TableFunctionAnalysis {};
+
+class TestSingleInputFunctionDataProcessor : public TableFunctionDataProcessor {
+ public:
+  explicit TestSingleInputFunctionDataProcessor(
+      const TestSingleInputFunctionHandle* handle,
+      memory::MemoryPool* pool);
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const std::vector<velox::RowVectorPtr>& input) override;
+
+ private:
+  const TestSingleInputFunctionHandle* handle_;
+  RowVectorPtr result_;  // Pre-built result page with single 'true' value
+};
+
+class TestSingleInputFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<TestSingleInputFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+};
+
+void registerTestSingleInputFunction(const std::string& name);
+
 } // namespace facebook::presto::tvf
 

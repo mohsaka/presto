@@ -345,6 +345,12 @@ public class TestDynamicTableFunctions
                 "VALUES 1");
     }
 
+    @Test
+    public void testSingleInputFunction()
+    {
+        assertQuery("SELECT * FROM TABLE(test_single_input_function(TABLE(VALUES (true), (false), (true))))", "VALUES true");
+    }
+
     private static Path getLocalPluginDirectory()
     {
         Path prestoRoot = findPrestoRoot();

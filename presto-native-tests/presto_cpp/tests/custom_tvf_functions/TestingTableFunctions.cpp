@@ -597,6 +597,84 @@ void registerConstantFunction(const std::string& name) {
       ConstantFunction::getSplits);
 }
 
+// TestSingleInputFunction implementation
+TestSingleInputFunctionDataProcessor::TestSingleInputFunctionDataProcessor(
+    const TestSingleInputFunctionHandle* handle,
+    memory::MemoryPool* pool)
+    : TableFunctionDataProcessor("test_single_input", pool, nullptr),
+      handle_(handle) {
+  // Pre-build the result Page once (matching Java behavior)
+  // The Java implementation creates the result Page once in the processor provider
+  // and reuses it for every input
+  auto boolColumn = BaseVector::create<FlatVector<bool>>(BOOLEAN(), 1, pool);
+  auto* rawBools = boolColumn->mutableRawValues();
+  rawBools[0] = true;
+  
+  auto rowType = ROW({BOOLEAN()});
+  std::vector<VectorPtr> children = {boolColumn};
+  result_ = std::make_shared<RowVector>(
+      pool, rowType, BufferPtr(nullptr), 1, std::move(children));
+}
+
+std::shared_ptr<TableFunctionResult> TestSingleInputFunctionDataProcessor::apply(
+    const std::vector<velox::RowVectorPtr>& input) {
+  auto inputTable = input.at(0);
+  
+  // Handle null input - return FINISHED
+  if (!inputTable) {
+    return std::make_shared<TableFunctionResult>(
+        TableFunctionResult::TableFunctionState::kFinished);
+  }
+  
+  // Return the pre-built result (same Page for every input)
+  // This matches the Java behavior where the same Page is reused
+  return std::make_shared<TableFunctionResult>(true, result_);
+}
+
+std::unique_ptr<TestSingleInputFunctionAnalysis> TestSingleInputFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  auto input = std::dynamic_pointer_cast<TableArgument>(args.at("INPUT"));
+  
+  // Require all input columns (per Java implementation)
+  std::vector<column_index_t> requiredColsList;
+  for (size_t i = 0; i < input->rowType()->size(); i++) {
+    requiredColsList.push_back(i);
+  }
+  RequiredColumnsMap requiredColumns;
+  requiredColumns.emplace("INPUT", requiredColsList);
+  
+  auto analysis = std::make_unique<TestSingleInputFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<TestSingleInputFunctionHandle>();
+  analysis->requiredColumns_ = requiredColumns;
+  return analysis;
+}
+
+void registerTestSingleInputFunction(const std::string& name) {
+  TableArgumentSpecList argSpecs;
+  argSpecs.insert(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT", true, true, false));  // rowSemantics=true, pruneWhenEmpty=true, passThroughColumns=false
+  
+  // Create descriptor for the return type: single BOOLEAN column named "boolean_result"
+  std::vector<std::string> returnNames = {"boolean_result"};
+  std::vector<TypePtr> returnTypes = {BOOLEAN()};
+  auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      TestSingleInputFunction::analyze,
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionDataProcessor> {
+        return std::make_unique<TestSingleInputFunctionDataProcessor>(
+            dynamic_cast<const TestSingleInputFunctionHandle*>(handle.get()), pool);
+      });
+}
+
 
 } // namespace facebook::presto::tvf
 
