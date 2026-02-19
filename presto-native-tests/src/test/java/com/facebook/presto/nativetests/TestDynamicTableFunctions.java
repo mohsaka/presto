@@ -346,9 +346,87 @@ public class TestDynamicTableFunctions
     }
 
     @Test
-    public void testSingleInputFunction()
+    public void testSingleSourceWithRowSemantics()
     {
         assertQuery("SELECT * FROM TABLE(test_single_input_function(TABLE(VALUES (true), (false), (true))))", "VALUES true");
+    }
+
+    @Test
+    public void testPrunePassThroughColumns()
+    {
+        // function pass_through has 2 proper columns, and it outputs all columns from both inputs using the pass-through mechanism.
+        // all columns are referenced
+        assertQuery("SELECT p1, p2, x1, x2, y1, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
+                        "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
+                "VALUES (true, true, 3, 'c', 5, 'e')");
+
+        // all pass-through columns are referenced. Proper columns are not referenced, but they are not pruned.
+        assertQuery("SELECT x1, x2, y1, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
+                        "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
+                "VALUES (3, 'c', 5, 'e')");
+
+        // some pass-through columns are referenced. Unreferenced pass-through columns are pruned.
+        assertQuery("SELECT x2, y2 " +
+                        "FROM TABLE(pass_through(" +
+                        "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
+                        "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
+                "VALUES ('c', 'e')");
+
+        assertQuery("SELECT y1, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
+                        "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
+                "VALUES (5, 'e')");
+
+        // no pass-through columns are referenced. Unreferenced pass-through columns are pruned.
+        assertQuery("SELECT 'x' " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
+                        "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
+                "VALUES ('x')");
+    }
+
+    @Test
+    public void testPrunePassThroughColumnsWithEmptyInput()
+    {
+        // function pass_through has 2 proper columns, and it outputs all columns from both inputs using the pass-through mechanism.
+        // all columns are referenced
+        assertQuery("SELECT p1, p2, x1, x2, y1, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
+                        "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2)",
+                "VALUES (false, false, CAST(null AS integer), CAST(null AS varchar(1)), CAST(null AS integer), CAST(null AS varchar(1)))");
+
+        /*// all pass-through columns are referenced. Proper columns are not referenced, but they are not pruned.
+        assertQuery("SELECT x1, x2, y1, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
+                        "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2) ",
+                "VALUES (CAST(null AS integer), CAST(null AS varchar(1)), CAST(null AS integer), CAST(null AS varchar(1)))");
+
+        // some pass-through columns are referenced. Unreferenced pass-through columns are pruned.
+        assertQuery("SELECT x2, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
+                        "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2)",
+                "VALUES (CAST(null AS varchar(1)), CAST(null AS varchar(1)))");
+
+        assertQuery("SELECT y1, y2 " +
+                        "FROM TABLE(pass_through( " +
+                        "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
+                        "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2)",
+                "VALUES (CAST(null AS integer), CAST(null AS varchar(1)))");
+
+        // no pass-through columns are referenced. Unreferenced pass-through columns are pruned.
+        assertQuery("SELECT 'x' " +
+                        "FROM TABLE(pass_through(" +
+                        "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
+                        "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2)",
+                "VALUES ('x')");*/
     }
 
     private static Path getLocalPluginDirectory()

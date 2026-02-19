@@ -56,8 +56,23 @@ class TableFunctionOperator : public velox::exec::Operator {
   }
 
   bool isFinished() override {
-    // There is no input and the function has completed as well.
-    return (noMoreInput_ && !validFunctionInput_);
+    // Early exit: not finished if still receiving input or have pending output
+    if (!noMoreInput_ || validFunctionInput_) {
+      return false;
+    }
+    
+    // Check if all rows have been processed (handles both empty and non-empty cases)
+    bool allRowsProcessed = (numRows_ > 0) ? (numProcessedRows_ >= numRows_) : true;
+    
+    // For empty partitions, we're done if finishedEmptyPartition_ is set
+    bool emptyPartitionDone = (numRows_ == 0) && finishedEmptyPartition_;
+    
+    // For functions with multiple inputs, ensure end-of-stream signal was sent
+    bool hasMultipleInputs = requiredColumnTypes_.size() > 1;
+    bool multipleInputsDone = !hasMultipleInputs || calledWithNullptr_;
+    
+    // Finished if: empty partition done OR (all rows processed AND multiple inputs handled)
+    return emptyPartitionDone || (allRowsProcessed && multipleInputsDone);
   }
 
   void reclaim(
@@ -110,6 +125,12 @@ class TableFunctionOperator : public velox::exec::Operator {
   velox::vector_size_t numProcessedRows_ = 0;
   // Number of input rows of the current partition processed so far.
   velox::vector_size_t numPartitionProcessedRows_ = 0;
+  
+  // Flag to track if we've called the function with nullptr to signal end-of-stream
+  bool calledWithNullptr_ = false;
+  
+  // Flag to track if we've finished processing the empty partition
+  bool finishedEmptyPartition_ = false;
 
   // Number of rows that be fit into an output block.
   velox::vector_size_t numRowsPerOutput_;

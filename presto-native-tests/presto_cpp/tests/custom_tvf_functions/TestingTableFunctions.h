@@ -577,5 +577,66 @@ class TestSingleInputFunction final : public TableFunction {
 
 void registerTestSingleInputFunction(const std::string& name);
 
+// PassThroughInputFunction - A function with two table inputs that have pass-through columns
+// Returns boolean flags indicating whether each input was present, plus pass-through indices
+class PassThroughInputFunctionHandle : public TableFunctionHandle {
+ public:
+  std::string_view name() const override {
+    return "PassThroughInputFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  };
+
+  static std::shared_ptr<PassThroughInputFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::shared_ptr<PassThroughInputFunctionHandle>();
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("PassThroughInputFunctionHandle", create);
+  }
+};
+
+class PassThroughInputFunctionAnalysis : public TableFunctionAnalysis {};
+
+class PassThroughInputFunctionDataProcessor : public TableFunctionDataProcessor {
+ public:
+  explicit PassThroughInputFunctionDataProcessor(
+      const PassThroughInputFunctionHandle* handle,
+      memory::MemoryPool* pool)
+      : TableFunctionDataProcessor("pass_through", pool, nullptr),
+        handle_(handle),
+        input1Present_(false),
+        input2Present_(false),
+        input1EndIndex_(0),
+        input2EndIndex_(0),
+        finished_(false) {}
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const std::vector<velox::RowVectorPtr>& input) override;
+
+ private:
+  const PassThroughInputFunctionHandle* handle_;
+  bool input1Present_;
+  bool input2Present_;
+  int64_t input1EndIndex_;
+  int64_t input2EndIndex_;
+  bool finished_;
+};
+
+class PassThroughInputFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<PassThroughInputFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+};
+
+void registerPassThroughInputFunction(const std::string& name);
+
 } // namespace facebook::presto::tvf
 

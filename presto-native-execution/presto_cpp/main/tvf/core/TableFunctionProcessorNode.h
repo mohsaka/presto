@@ -27,13 +27,19 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
     PassThroughColumnSpecification(
         bool isPartitioningColumn,
         velox::column_index_t inputChannel,
+        velox::column_index_t outputChannel,
         velox::column_index_t indexChannel)
         : isPartitioningColumn_(isPartitioningColumn),
           inputChannel_(inputChannel),
+          outputChannel_(outputChannel),
           indexChannel_(indexChannel) {}
 
     velox::column_index_t inputChannel() const {
       return inputChannel_;
+    }
+
+    velox::column_index_t outputChannel() const {
+      return outputChannel_;
     }
 
     velox::column_index_t indexChannel() const {
@@ -48,6 +54,7 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
       folly::dynamic obj = folly::dynamic::object;
       obj["isPartitioningColumn"] = isPartitioningColumn_;
       obj["inputChannel"] = inputChannel_;
+      obj["outputChannel"] = outputChannel_;
       obj["indexChannel"] = indexChannel_;
       return obj;
     }
@@ -57,12 +64,14 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
       return {
           obj["isPartitioningColumn"].asBool(),
           static_cast<velox::column_index_t>(obj["inputChannel"].asInt()),
+          static_cast<velox::column_index_t>(obj["outputChannel"].asInt()),
           static_cast<velox::column_index_t>(obj["indexChannel"].asInt())};
     }
 
    private:
     const bool isPartitioningColumn_;
     const velox::column_index_t inputChannel_;
+    const velox::column_index_t outputChannel_;
     const velox::column_index_t indexChannel_;
   };
 

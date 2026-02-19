@@ -675,6 +675,132 @@ void registerTestSingleInputFunction(const std::string& name) {
       });
 }
 
+// PassThroughInputFunction implementation
+std::shared_ptr<TableFunctionResult> PassThroughInputFunctionDataProcessor::apply(
+    const std::vector<velox::RowVectorPtr>& input) {
+  if (finished_) {
+    return std::make_shared<TableFunctionResult>(
+        TableFunctionResult::TableFunctionState::kFinished);
+  }
+  
+  // If input is null, we're done processing - produce final result
+  // Only check for null pointers, NOT empty vectors (0 rows just means no data in this batch)
+  bool input0Done = (input[0] == nullptr);
+  bool input1Done = (input.size() < 2 || input[1] == nullptr);
+  
+  if (input.empty() || (input0Done && input1Done)) {
+    finished_ = true;
+    
+    // Create proper columns: input_1_present and input_2_present
+    auto input1PresentColumn = BaseVector::create<FlatVector<bool>>(BOOLEAN(), 1, pool());
+    auto input2PresentColumn = BaseVector::create<FlatVector<bool>>(BOOLEAN(), 1, pool());
+    input1PresentColumn->set(0, input1Present_);
+    input2PresentColumn->set(0, input2Present_);
+    
+    // Create pass-through index columns (must be INTEGER/int32_t for Velox)
+    auto input1PassThroughColumn = BaseVector::create<FlatVector<int32_t>>(INTEGER(), 1, pool());
+    auto input2PassThroughColumn = BaseVector::create<FlatVector<int32_t>>(INTEGER(), 1, pool());
+    
+    if (input1Present_) {
+      input1PassThroughColumn->set(0, input1EndIndex_ - 1);
+    } else {
+      input1PassThroughColumn->setNull(0, true);
+    }
+    
+    if (input2Present_) {
+      input2PassThroughColumn->set(0, input2EndIndex_ - 1);
+    } else {
+      input2PassThroughColumn->setNull(0, true);
+    }
+    
+    // Create output with 4 columns: 2 proper + 2 pass-through indices
+    auto rowType = ROW({BOOLEAN(), BOOLEAN(), INTEGER(), INTEGER()});
+    std::vector<VectorPtr> children = {
+        input1PresentColumn,
+        input2PresentColumn,
+        input1PassThroughColumn,
+        input2PassThroughColumn};
+    RowVectorPtr outputTable = std::make_shared<RowVector>(
+        pool(), rowType, BufferPtr(nullptr), 1, std::move(children));
+
+    return std::make_shared<TableFunctionResult>(false, std::move(outputTable));
+  }
+  
+  // Process input pages and track presence
+  if (input[0] != nullptr && input[0]->size() > 0) {
+    input1Present_ = true;
+    input1EndIndex_ += input[0]->size();
+  }
+  
+  if (input.size() > 1 && input[1] != nullptr && input[1]->size() > 0) {
+    input2Present_ = true;
+    input2EndIndex_ += input[1]->size();
+  }
+
+  return std::make_shared<TableFunctionResult>(true, nullptr);
+}
+
+std::unique_ptr<PassThroughInputFunctionAnalysis> PassThroughInputFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  // Only require column 0 from each input (matching Java behavior)
+  RequiredColumnsMap requiredColumns;
+  
+  // Get INPUT_1 and require only column 0
+  auto input1It = args.find("INPUT_1");
+  if (input1It != args.end()) {
+    auto tableArg = std::dynamic_pointer_cast<TableArgument>(input1It->second);
+    if (tableArg) {
+      std::vector<column_index_t> requiredColsList = {0};  // Only column 0
+      requiredColumns.emplace("INPUT_1", requiredColsList);
+    }
+  }
+  
+  // Get INPUT_2 and require only column 0
+  auto input2It = args.find("INPUT_2");
+  if (input2It != args.end()) {
+    auto tableArg = std::dynamic_pointer_cast<TableArgument>(input2It->second);
+    if (tableArg) {
+      std::vector<column_index_t> requiredColsList = {0};  // Only column 0
+      requiredColumns.emplace("INPUT_2", requiredColsList);
+    }
+  }
+  
+  auto analysis = std::make_unique<PassThroughInputFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<PassThroughInputFunctionHandle>();
+  analysis->requiredColumns_ = requiredColumns;
+  return analysis;
+}
+
+void registerPassThroughInputFunction(const std::string& name) {
+  TableArgumentSpecList argSpecs;
+  // Both inputs have passThroughColumns=true and keepWhenEmpty=true (pruneWhenEmpty=false)
+  argSpecs.insert(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT_1", false, false, true));  // rowSemantics=false, pruneWhenEmpty=false, passThroughColumns=true
+  argSpecs.insert(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT_2", false, false, true));  // rowSemantics=false, pruneWhenEmpty=false, passThroughColumns=true
+  
+  // Create descriptor for return type: 2 proper BOOLEAN columns
+  // The framework will automatically add pass-through index columns
+  std::vector<std::string> returnNames = {"input_1_present", "input_2_present"};
+  std::vector<TypePtr> returnTypes = {BOOLEAN(), BOOLEAN()};
+  auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      PassThroughInputFunction::analyze,
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionDataProcessor> {
+        return std::make_unique<PassThroughInputFunctionDataProcessor>(
+            dynamic_cast<const PassThroughInputFunctionHandle*>(handle.get()), pool);
+      });
+}
 
 } // namespace facebook::presto::tvf
 
