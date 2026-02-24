@@ -44,9 +44,9 @@ std::unique_ptr<SimpleTableFunctionAnalysis> SimpleTableFunction::analyze(
 
 void registerSimpleTableFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<ScalarArgumentSpecification>("COLUMN", VARCHAR(), false, "col"));
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<ScalarArgumentSpecification>(
           "IGNORED", BIGINT(), false, "0"));
 
@@ -82,7 +82,7 @@ std::unique_ptr<IdentityFunctionAnalysis> IdentityFunction::analyze(
     requiredColsList.push_back(i);
   }
   RequiredColumnsMap requiredColumns;
-  requiredColumns.emplace("INPUT", requiredColsList);
+  requiredColumns.push_back({"INPUT", requiredColsList});
 
   auto analysis = std::make_unique<IdentityFunctionAnalysis>();
   analysis->tableFunctionHandle_ = std::make_shared<IdentityFunctionHandle>();
@@ -94,7 +94,7 @@ std::unique_ptr<IdentityFunctionAnalysis> IdentityFunction::analyze(
 
 void registerIdentityFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
           "INPUT", false, false, false));
   registerTableFunction(
@@ -165,10 +165,10 @@ std::unique_ptr<RepeatFunctionAnalysis> RepeatFunction::analyze(
 
 void registerRepeatFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
           "INPUT", false, false, true));
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<ScalarArgumentSpecification>("COUNT", BIGINT(), false, "2"));
   registerTableFunction(
       name,
@@ -224,7 +224,7 @@ std::unique_ptr<IdentityPassThroughFunctionAnalysis> IdentityPassThroughFunction
 
 void registerIdentityPassThroughFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
           "INPUT", false, false, true));
   registerTableFunction(
@@ -267,7 +267,7 @@ std::unique_ptr<EmptyOutputFunctionAnalysis> EmptyOutputFunction::analyze(
     requiredColsList.push_back(i);
   }
   RequiredColumnsMap requiredColumns;
-  requiredColumns.emplace("INPUT", requiredColsList);
+  requiredColumns.push_back({"INPUT", requiredColsList});
 
   auto analysis = std::make_unique<EmptyOutputFunctionAnalysis>();
   analysis->tableFunctionHandle_ = std::make_shared<EmptyOutputFunctionHandle>();
@@ -277,7 +277,7 @@ std::unique_ptr<EmptyOutputFunctionAnalysis> EmptyOutputFunction::analyze(
 
 void registerEmptyOutputFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
           "INPUT", false, false, false));  // rowSemantics=false, pruneWhenEmpty=false (keepWhenEmpty), passThroughColumns=false
   
@@ -333,7 +333,7 @@ std::unique_ptr<EmptyOutputWithPassThroughFunctionAnalysis> EmptyOutputWithPassT
     requiredColsList.push_back(i);
   }
   RequiredColumnsMap requiredColumns;
-  requiredColumns.emplace("INPUT", requiredColsList);
+  requiredColumns.push_back({"INPUT", requiredColsList});
 
   // Return type is specified in DescribedTableReturnTypeSpecification at registration
   // Do not set returnType_ here to avoid ambiguity
@@ -347,7 +347,7 @@ std::unique_ptr<EmptyOutputWithPassThroughFunctionAnalysis> EmptyOutputWithPassT
 
 void registerEmptyOutputWithPassThroughFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
           "INPUT", false, false, true));  // rowSemantics=false, pruneWhenEmpty=false (keepWhenEmpty), passThroughColumns=true
   
@@ -570,9 +570,9 @@ std::unique_ptr<ConstantFunctionAnalysis> ConstantFunction::analyze(
 void registerConstantFunction(const std::string& name) {
   // Source functions have no table arguments
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<ScalarArgumentSpecification>("VALUE", INTEGER(), false));
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<ScalarArgumentSpecification>("N", INTEGER(), false, "1"));
   
   // Create descriptor for the return type: single INTEGER column named "constant_column"
@@ -641,7 +641,7 @@ std::unique_ptr<TestSingleInputFunctionAnalysis> TestSingleInputFunction::analyz
     requiredColsList.push_back(i);
   }
   RequiredColumnsMap requiredColumns;
-  requiredColumns.emplace("INPUT", requiredColsList);
+  requiredColumns.push_back({"INPUT", requiredColsList});
   
   auto analysis = std::make_unique<TestSingleInputFunctionAnalysis>();
   analysis->tableFunctionHandle_ = std::make_shared<TestSingleInputFunctionHandle>();
@@ -651,7 +651,7 @@ std::unique_ptr<TestSingleInputFunctionAnalysis> TestSingleInputFunction::analyz
 
 void registerTestSingleInputFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
           "INPUT", true, true, false));  // rowSemantics=true, pruneWhenEmpty=true, passThroughColumns=false
   
@@ -726,15 +726,26 @@ std::shared_ptr<TableFunctionResult> PassThroughInputFunctionDataProcessor::appl
     return std::make_shared<TableFunctionResult>(false, std::move(outputTable));
   }
   
-  // Process input pages and track presence
+  auto countNonNullRows = [](const RowVectorPtr& vec) -> int {
+    if (!vec || vec->size() == 0) return 0;
+    auto firstCol = vec->childAt(0);
+    int count = 0;
+    for (int i = 0; i < vec->size(); i++) {
+      if (!firstCol->isNullAt(i)) {
+        count++;
+      }
+    }
+    return count;
+  };
+  
   if (input[0] != nullptr && input[0]->size() > 0) {
     input1Present_ = true;
-    input1EndIndex_ += input[0]->size();
+    input1EndIndex_ += countNonNullRows(input[0]);
   }
   
   if (input.size() > 1 && input[1] != nullptr && input[1]->size() > 0) {
     input2Present_ = true;
-    input2EndIndex_ += input[1]->size();
+    input2EndIndex_ += countNonNullRows(input[1]);
   }
 
   return std::make_shared<TableFunctionResult>(true, nullptr);
@@ -742,26 +753,15 @@ std::shared_ptr<TableFunctionResult> PassThroughInputFunctionDataProcessor::appl
 
 std::unique_ptr<PassThroughInputFunctionAnalysis> PassThroughInputFunction::analyze(
     const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
-  // Only require column 0 from each input (matching Java behavior)
   RequiredColumnsMap requiredColumns;
   
-  // Get INPUT_1 and require only column 0
-  auto input1It = args.find("INPUT_1");
-  if (input1It != args.end()) {
-    auto tableArg = std::dynamic_pointer_cast<TableArgument>(input1It->second);
-    if (tableArg) {
-      std::vector<column_index_t> requiredColsList = {0};  // Only column 0
-      requiredColumns.emplace("INPUT_1", requiredColsList);
-    }
-  }
-  
-  // Get INPUT_2 and require only column 0
-  auto input2It = args.find("INPUT_2");
-  if (input2It != args.end()) {
-    auto tableArg = std::dynamic_pointer_cast<TableArgument>(input2It->second);
-    if (tableArg) {
-      std::vector<column_index_t> requiredColsList = {0};  // Only column 0
-      requiredColumns.emplace("INPUT_2", requiredColsList);
+  for (const auto& inputName : {"INPUT_1", "INPUT_2"}) {
+    auto it = args.find(inputName);
+    if (it != args.end()) {
+      auto tableArg = std::dynamic_pointer_cast<TableArgument>(it->second);
+      if (tableArg) {
+        requiredColumns.push_back({inputName, {0}});
+      }
     }
   }
   
@@ -773,16 +773,13 @@ std::unique_ptr<PassThroughInputFunctionAnalysis> PassThroughInputFunction::anal
 
 void registerPassThroughInputFunction(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  // Both inputs have passThroughColumns=true and keepWhenEmpty=true (pruneWhenEmpty=false)
-  argSpecs.insert(
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
-          "INPUT_1", false, false, true));  // rowSemantics=false, pruneWhenEmpty=false, passThroughColumns=true
-  argSpecs.insert(
+          "INPUT_1", false, false, true));
+  argSpecs.push_back(
       std::make_shared<TableArgumentSpecification>(
-          "INPUT_2", false, false, true));  // rowSemantics=false, pruneWhenEmpty=false, passThroughColumns=true
+          "INPUT_2", false, false, true));
   
-  // Create descriptor for return type: 2 proper BOOLEAN columns
-  // The framework will automatically add pass-through index columns
   std::vector<std::string> returnNames = {"input_1_present", "input_2_present"};
   std::vector<TypePtr> returnTypes = {BOOLEAN(), BOOLEAN()};
   auto descriptor = std::make_shared<Descriptor>(returnNames, returnTypes);
@@ -799,6 +796,95 @@ void registerPassThroughInputFunction(const std::string& name) {
           -> std::unique_ptr<TableFunctionDataProcessor> {
         return std::make_unique<PassThroughInputFunctionDataProcessor>(
             dynamic_cast<const PassThroughInputFunctionHandle*>(handle.get()), pool);
+      });
+}
+
+TestInputsFunctionDataProcessor::TestInputsFunctionDataProcessor(
+    const TestInputsFunctionHandle* handle,
+    memory::MemoryPool* pool)
+    : TableFunctionDataProcessor("test_inputs", pool, nullptr),
+      handle_(handle) {
+  auto boolColumn = BaseVector::create<FlatVector<bool>>(BOOLEAN(), 1, pool);
+  boolColumn->mutableRawValues()[0] = true;
+  
+  result_ = std::make_shared<RowVector>(
+      pool, ROW({BOOLEAN()}), BufferPtr(nullptr), 1,
+      std::vector<VectorPtr>{boolColumn});
+}
+
+std::shared_ptr<TableFunctionResult> TestInputsFunctionDataProcessor::apply(
+    const std::vector<velox::RowVectorPtr>& input) {
+  auto inputTable = input.at(0);
+  if (inputTable == nullptr) {
+    bool allNull = std::all_of(input.begin(), input.end(),
+        [](const auto& vec) { return vec == nullptr; });
+    return std::make_shared<TableFunctionResult>(
+        TableFunctionResult::TableFunctionState::kFinished);
+  }
+  
+  if (inputTable->size() == 0) {
+    return std::make_shared<TableFunctionResult>(
+        TableFunctionResult::TableFunctionState::kFinished);
+  }
+  
+  return std::make_shared<TableFunctionResult>(true, result_);
+}
+
+std::unique_ptr<TestInputsFunctionAnalysis> TestInputsFunction::analyze(
+    const std::unordered_map<std::string, std::shared_ptr<Argument>>& args) {
+  RequiredColumnsMap requiredColumns;
+  
+  for (const auto& inputName : {"INPUT_1", "INPUT_2", "INPUT_3", "INPUT_4"}) {
+    auto it = args.find(inputName);
+    if (it != args.end()) {
+      auto tableArg = std::dynamic_pointer_cast<TableArgument>(it->second);
+      if (tableArg) {
+        std::vector<column_index_t> requiredColsList;
+        for (size_t i = 0; i < tableArg->rowType()->size(); i++) {
+          requiredColsList.push_back(i);
+        }
+        requiredColumns.push_back({inputName, requiredColsList});
+      }
+    }
+  }
+  
+  auto analysis = std::make_unique<TestInputsFunctionAnalysis>();
+  analysis->tableFunctionHandle_ = std::make_shared<TestInputsFunctionHandle>();
+  analysis->requiredColumns_ = requiredColumns;
+  return analysis;
+}
+
+void registerTestInputsFunction(const std::string& name) {
+  TableArgumentSpecList argSpecs;
+  argSpecs.push_back(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT_1", true, true, false));
+  argSpecs.push_back(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT_2", false, false, false));
+  argSpecs.push_back(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT_3", false, false, false));
+  argSpecs.push_back(
+      std::make_shared<TableArgumentSpecification>(
+          "INPUT_4", false, false, false));
+  
+  auto descriptor = std::make_shared<Descriptor>(
+      std::vector<std::string>{"boolean_result"},
+      std::vector<TypePtr>{BOOLEAN()});
+  
+  registerTableFunction(
+      name,
+      argSpecs,
+      std::make_shared<DescribedTableReturnTypeSpecification>(descriptor),
+      TestInputsFunction::analyze,
+      [](const TableFunctionHandlePtr& handle,
+         memory::MemoryPool* pool,
+         HashStringAllocator* stringAllocator,
+         const velox::core::QueryConfig& config)
+          -> std::unique_ptr<TableFunctionDataProcessor> {
+        return std::make_unique<TestInputsFunctionDataProcessor>(
+            dynamic_cast<const TestInputsFunctionHandle*>(handle.get()), pool);
       });
 }
 

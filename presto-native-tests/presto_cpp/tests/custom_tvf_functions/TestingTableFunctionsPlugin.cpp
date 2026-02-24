@@ -36,6 +36,7 @@ void registerExtensions() {
   facebook::presto::tvf::registerConstantFunction("presto.default.constant");
   facebook::presto::tvf::registerTestSingleInputFunction("presto.default.test_single_input_function");
   facebook::presto::tvf::registerPassThroughInputFunction("presto.default.pass_through");
+  facebook::presto::tvf::registerTestInputsFunction("presto.default.test_inputs_function");
 
   facebook::presto::tvf::SimpleTableFunctionHandle::registerSerDe();
   facebook::presto::tvf::RepeatFunctionHandle::registerSerDe();
@@ -49,6 +50,7 @@ void registerExtensions() {
   facebook::presto::tvf::ConstantFunctionSplitHandle::registerSerDe();
   facebook::presto::tvf::TestSingleInputFunctionHandle::registerSerDe();
   facebook::presto::tvf::PassThroughInputFunctionHandle::registerSerDe();
+  facebook::presto::tvf::TestInputsFunctionHandle::registerSerDe();
 }
 }
 

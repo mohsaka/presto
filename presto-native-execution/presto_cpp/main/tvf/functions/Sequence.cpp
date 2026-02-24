@@ -225,16 +225,12 @@ class Sequence : public TableFunctionSplitProcessor {
 
 void registerSequence(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
-      std::make_shared<ScalarArgumentSpecification>(
-          START_ARGUMENT_NAME, BIGINT(), true));
-  argSpecs.insert(
-      std::make_shared<ScalarArgumentSpecification>(
-          STOP_ARGUMENT_NAME, BIGINT(), true));
-  // TODO : Figure how to make this an optional argument.
-  argSpecs.insert(
-      std::make_shared<ScalarArgumentSpecification>(
-          STEP_ARGUMENT_NAME, BIGINT(), true));
+  argSpecs.push_back(std::make_shared<ScalarArgumentSpecification>(
+      START_ARGUMENT_NAME, BIGINT(), true));
+  argSpecs.push_back(std::make_shared<ScalarArgumentSpecification>(
+      STOP_ARGUMENT_NAME, BIGINT(), true));
+  argSpecs.push_back(std::make_shared<ScalarArgumentSpecification>(
+      STEP_ARGUMENT_NAME, BIGINT(), true));
 
   std::vector<std::string> names = {"sequential_number"};
   std::vector<TypePtr> types = {BIGINT()};

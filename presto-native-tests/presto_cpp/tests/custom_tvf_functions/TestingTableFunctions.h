@@ -638,5 +638,56 @@ class PassThroughInputFunction final : public TableFunction {
 
 void registerPassThroughInputFunction(const std::string& name);
 
+// TestInputsFunction - A function with four table inputs to test input partitioning
+// INPUT_1 has row semantics (pruneWhenEmpty=true), INPUT_2, INPUT_3, INPUT_4 have set semantics (keepWhenEmpty=true)
+// Returns a single boolean column with value true for each partition tuple processed
+class TestInputsFunctionHandle : public TableFunctionHandle {
+ public:
+  std::string_view name() const override {
+    return "TestInputsFunctionHandle";
+  };
+
+  folly::dynamic serialize() const override {
+    folly::dynamic obj = folly::dynamic::object;
+    obj["name"] = fmt::format("{}", name());
+    return obj;
+  };
+
+  static std::shared_ptr<TestInputsFunctionHandle> create(
+      const folly::dynamic& obj,
+      void* context) {
+    return std::shared_ptr<TestInputsFunctionHandle>();
+  };
+
+  static void registerSerDe() {
+    auto& registry = velox::DeserializationWithContextRegistryForSharedPtr();
+    registry.Register("TestInputsFunctionHandle", create);
+  }
+};
+
+class TestInputsFunctionAnalysis : public TableFunctionAnalysis {};
+
+class TestInputsFunctionDataProcessor : public TableFunctionDataProcessor {
+ public:
+  explicit TestInputsFunctionDataProcessor(
+      const TestInputsFunctionHandle* handle,
+      memory::MemoryPool* pool);
+
+  std::shared_ptr<TableFunctionResult> apply(
+      const std::vector<velox::RowVectorPtr>& input) override;
+
+ private:
+  const TestInputsFunctionHandle* handle_;
+  RowVectorPtr result_;  // Pre-built result page with single 'true' value
+};
+
+class TestInputsFunction final : public TableFunction {
+ public:
+  static std::unique_ptr<TestInputsFunctionAnalysis> analyze(
+      const std::unordered_map<std::string, std::shared_ptr<Argument>>& args);
+};
+
+void registerTestInputsFunction(const std::string& name);
+
 } // namespace facebook::presto::tvf
 

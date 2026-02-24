@@ -119,9 +119,7 @@ class ExcludeColumns : public TableFunction {
 
     std::vector<std::string> returnNames;
     std::vector<TypePtr> returnTypes;
-    std::unordered_map<std::string, std::vector<column_index_t>>
-        requiredColumns;
-    requiredColumns.reserve(1);
+    RequiredColumnsMap requiredColumns;
     std::vector<column_index_t> requiredColsList;
     for (column_index_t i = 0; i < inputColumns.size(); i++) {
       if (excludeColumnsSet.count(inputColumns.at(i)) == 0) {
@@ -132,7 +130,7 @@ class ExcludeColumns : public TableFunction {
         requiredColsList.push_back(i);
       }
     }
-    requiredColumns.insert({TABLE_ARGUMENT_NAME, requiredColsList});
+    requiredColumns.push_back({TABLE_ARGUMENT_NAME, requiredColsList});
     auto analysis = std::make_unique<ExcludeColumnsAnalysis>();
     analysis->tableFunctionHandle_ = std::make_shared<ExcludeColumnsHandle>();
     analysis->returnType_ =
@@ -148,12 +146,10 @@ class ExcludeColumns : public TableFunction {
 
 void registerExcludeColumns(const std::string& name) {
   TableArgumentSpecList argSpecs;
-  argSpecs.insert(
-      std::make_shared<TableArgumentSpecification>(
-          TABLE_ARGUMENT_NAME, true, true, false));
-  argSpecs.insert(
-      std::make_shared<DescriptorArgumentSpecification>(
-          DESCRIPTOR_ARGUMENT_NAME, Descriptor({"columns"}), true));
+  argSpecs.push_back(std::make_shared<TableArgumentSpecification>(
+      TABLE_ARGUMENT_NAME, true, true, false));
+  argSpecs.push_back(std::make_shared<DescriptorArgumentSpecification>(
+      DESCRIPTOR_ARGUMENT_NAME, Descriptor({"columns"}), true));
   registerTableFunction(
       name,
       argSpecs,

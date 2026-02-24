@@ -38,7 +38,6 @@ class ScalarArgument : public Argument {
   const velox::VectorPtr constantValue_;
 };
 
-// TODO: Add default value support.
 class ScalarArgumentSpecification : public ArgumentSpecification {
  public:
   ScalarArgumentSpecification(

@@ -56,23 +56,16 @@ class TableFunctionOperator : public velox::exec::Operator {
   }
 
   bool isFinished() override {
-    // Early exit: not finished if still receiving input or have pending output
     if (!noMoreInput_ || validFunctionInput_) {
       return false;
     }
     
-    // Check if all rows have been processed (handles both empty and non-empty cases)
     bool allRowsProcessed = (numRows_ > 0) ? (numProcessedRows_ >= numRows_) : true;
-    
-    // For empty partitions, we're done if finishedEmptyPartition_ is set
+    bool emptyPruned = (numRows_ == 0) && tableFunctionProcessorNode_->pruneWhenEmpty();
     bool emptyPartitionDone = (numRows_ == 0) && finishedEmptyPartition_;
+    bool multipleInputsDone = (requiredColumnTypes_.size() <= 1) || calledWithNullptr_;
     
-    // For functions with multiple inputs, ensure end-of-stream signal was sent
-    bool hasMultipleInputs = requiredColumnTypes_.size() > 1;
-    bool multipleInputsDone = !hasMultipleInputs || calledWithNullptr_;
-    
-    // Finished if: empty partition done OR (all rows processed AND multiple inputs handled)
-    return emptyPartitionDone || (allRowsProcessed && multipleInputsDone);
+    return emptyPruned || emptyPartitionDone || (allRowsProcessed && multipleInputsDone);
   }
 
   void reclaim(

@@ -85,7 +85,7 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
       bool pruneWhenEmpty,
       velox::RowTypePtr outputType,
       std::vector<std::vector<velox::column_index_t>> requiredColumns,
-      std::unordered_map<velox::column_index_t, velox::column_index_t>
+      std::vector<std::pair<velox::column_index_t, velox::column_index_t>>
           markerChannels,
       std::vector<PassThroughColumnSpecification> passThroughColumns,
       std::vector<velox::core::PlanNodePtr> sources);
@@ -140,8 +140,8 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
     return requiredColumns_;
   }
 
-  const std::unordered_map<velox::column_index_t, velox::column_index_t>&
-  markerChannels() const {
+  const std::vector<std::pair<velox::column_index_t, velox::column_index_t>>& markerChannels()
+      const {
     return markerChannels_;
   }
 
@@ -151,12 +151,7 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
   }
 
   bool requiresSplits() const override {
-    if (sources_.empty()) {
-      // This is a leaf operator that needs splits then.
-      return true;
-    }
-
-    return false;
+    return sources_.empty();
   }
 
   folly::dynamic serialize() const override;
@@ -182,7 +177,7 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
 
   const std::vector<std::vector<velox::column_index_t>> requiredColumns_;
 
-  const std::unordered_map<velox::column_index_t, velox::column_index_t>
+  const std::vector<std::pair<velox::column_index_t, velox::column_index_t>>
       markerChannels_;
 
   const std::vector<PassThroughColumnSpecification> passThroughColumns_;

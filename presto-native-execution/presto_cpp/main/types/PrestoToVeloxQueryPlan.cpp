@@ -1923,18 +1923,13 @@ VeloxQueryPlanConverterBase::toVeloxQueryPlan(
     }
   }
 
-  std::unordered_map<velox::column_index_t, velox::column_index_t>
+  std::vector<std::pair<velox::column_index_t, velox::column_index_t>>
       markerChannels;
-  if (node->markerVariables) {
-    if (inputType) {
-      for (const auto& [markerVariable, channel] : *node->markerVariables) {
-        // markerVariable is an INPUT column (data column like 'a', 'b', 'c', 'd')
-        // channel is also an INPUT column (marker column like 'marker_1', 'marker_2')
-        // Both should be looked up in inputType, not outputType
-        markerChannels.emplace(
-            inputType->getChildIdx(markerVariable.name),
-            inputType->getChildIdx(channel.name));
-      }
+  if (node->markerVariables && inputType) {
+    for (const auto& [markerVariable, channel] : *node->markerVariables) {
+      markerChannels.push_back({
+          inputType->getChildIdx(markerVariable.name),
+          inputType->getChildIdx(channel.name)});
     }
   }
 

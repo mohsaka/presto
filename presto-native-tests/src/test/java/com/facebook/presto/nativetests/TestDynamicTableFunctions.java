@@ -401,7 +401,7 @@ public class TestDynamicTableFunctions
                         "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2)",
                 "VALUES (false, false, CAST(null AS integer), CAST(null AS varchar(1)), CAST(null AS integer), CAST(null AS varchar(1)))");
 
-        /*// all pass-through columns are referenced. Proper columns are not referenced, but they are not pruned.
+        // all pass-through columns are referenced. Proper columns are not referenced, but they are not pruned.
         assertQuery("SELECT x1, x2, y1, y2 " +
                         "FROM TABLE(pass_through( " +
                         "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
@@ -426,7 +426,192 @@ public class TestDynamicTableFunctions
                         "FROM TABLE(pass_through(" +
                         "                            TABLE(SELECT 1, 'a' WHERE FALSE) t1(x1, x2)," +
                         "                            TABLE(SELECT 4, 'd' WHERE FALSE) t2(y1, y2))) t(p1, p2)",
-                "VALUES ('x')");*/
+                "VALUES ('x')");
+    }
+
+    @Test
+    public void testInputPartitioning()
+    {
+        // table function test_inputs_function has four table arguments. input_1 has row semantics. input_2, input_3 and input_4 have set semantics.
+        // the function outputs one row per each tuple of partition it processes. The row includes a true value, and partitioning values.
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 4, 5, 4, 5, 4) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 6, 7, 6) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 8, 9)))",
+                "VALUES (true, 4, 6), (true, 4, 7), (true, 5, 6), (true, 5, 7)");
+
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 4, 5, 4, 5, 4) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 6, 7, 6) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 8, 9) t4(x4) PARTITION BY x4))",
+                "VALUES (true, 4, 6, 8), (true, 4, 6, 9), (true, 4, 7, 8), (true, 4, 7, 9), (true, 5, 6, 8), (true, 5, 6, 9), (true, 5, 7, 8), (true, 5, 7, 9)");
+
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 4, 5, 4, 5, 4) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 6, 7, 6) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 8, 8) t4(x4) PARTITION BY x4))",
+                "VALUES (true, 4, 6, 8), (true, 4, 7, 8), (true, 5, 6, 8), (true, 5, 7, 8)");
+
+        // null partitioning values
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, null)," +
+                        "input_2 => TABLE(VALUES 2, null, 2, null) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 3, null, 3, null) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES null, null) t4(x4) PARTITION BY x4))",
+                "VALUES (true, 2, 3, null), (true, 2, null, null), (true, null, 3, null), (true, null, null, null)");
+
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 4, 5, 4, 5, 4)," +
+                        "input_3 => TABLE(VALUES 6, 7, 6)," +
+                        "input_4 => TABLE(VALUES 8, 9)))",
+                "VALUES true");
+    }
+
+    @Test
+    public void testEmptyPartitions()
+    {
+        // input_1 has row semantics, so it is prune when empty. input_2, input_3 and input_4 have set semantics, and are keep when empty by default
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(SELECT 2 WHERE false)," +
+                        "input_3 => TABLE(SELECT 3 WHERE false)," +
+                        "input_4 => TABLE(SELECT 4 WHERE false)))",
+                "VALUES true");
+
+        assertQueryReturnsEmptyResult("SELECT * FROM TABLE(test_inputs_function(" +
+                "input_1 => TABLE(SELECT 1 WHERE false)," +
+                "input_2 => TABLE(VALUES 2)," +
+                "input_3 => TABLE(VALUES 3)," +
+                "input_4 => TABLE(VALUES 4)))");
+
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(SELECT 2 WHERE false) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(SELECT 3 WHERE false) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(SELECT 4 WHERE false) t4(x4) PARTITION BY x4))",
+                "VALUES (true, CAST(null AS integer), CAST(null AS integer), CAST(null AS integer))");
+
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(SELECT 2 WHERE false) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 3, 4, 4) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 4, 4, 4, 5, 5, 5, 5) t4(x4) PARTITION BY x4))",
+                "VALUES (true, CAST(null AS integer), 3, 4), (true, null, 4, 4), (true, null, 4, 5), (true, null, 3, 5)");
+
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(SELECT 2 WHERE false) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(SELECT 3 WHERE false) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 4, 5) t4(x4) PARTITION BY x4))",
+                "VALUES (true, CAST(null AS integer), CAST(null AS integer), 4), (true, null, null, 5)");
+
+        assertQueryReturnsEmptyResult("SELECT * FROM TABLE(test_inputs_function(" +
+                "input_1 => TABLE(VALUES 1, 2, 3)," +
+                "input_2 => TABLE(SELECT 2 WHERE false) t2(x2) PARTITION BY x2 PRUNE WHEN EMPTY," +
+                "input_3 => TABLE(SELECT 3 WHERE false) t3(x3) PARTITION BY x3," +
+                "input_4 => TABLE(VALUES 4, 5) t4(x4) PARTITION BY x4))");
+    }
+
+    @Test
+    public void testCopartitioning()
+    {
+        // all tables are by default KEEP WHEN EMPTY. If there is no matching partition, it is null-completed
+        assertQuery("SELECT * FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, 2, 2) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 4, 5) t3(x3)," +
+                        "input_4 => TABLE(VALUES 2, 2, 2, 3) t4(x4) PARTITION BY x4 " +
+                        "COPARTITION (t2, t4)))",
+                "VALUES (true, 1, null), (true, 2, 2), (true, null, 3)");
+
+        // partition `3` from input_4 is pruned because there is no matching partition in input_2
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, 2, 2) t2(x2) PARTITION BY x2 PRUNE WHEN EMPTY," +
+                        "input_3 => TABLE(VALUES 4, 5) t3(x3)," +
+                        "input_4 => TABLE(VALUES 2, 2, 2, 3) t4(x4) PARTITION BY x4 " +
+                        "COPARTITION (t2, t4)))",
+                "VALUES (true, 1, null), (true, 2, 2)");
+
+        // partition `1` from input_2 is pruned because there is no matching partition in input_4
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, 2, 2) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 4, 5) t3(x3)," +
+                        "input_4 => TABLE(VALUES 2, 2, 2, 3) t4(x4) PARTITION BY x4 PRUNE WHEN EMPTY " +
+                        "COPARTITION (t2, t4)))",
+                "VALUES (true, 2, 2), (true, null, 3)");
+
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, 2, 2) t2(x2) PARTITION BY x2 PRUNE WHEN EMPTY," +
+                        "input_3 => TABLE(VALUES 4, 5) t3(x3)," +
+                        "input_4 => TABLE(VALUES 2, 2, 2, 3) t4(x4) PARTITION BY x4 PRUNE WHEN EMPTY " +
+                        "COPARTITION (t2, t4)))",
+                "VALUES (true, 2, 2)");
+
+        // null partitioning values
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, null, null, 2, 2) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 4, 5) t3(x3)," +
+                        "input_4 => TABLE(VALUES null, 2, 2, 2, 3) t4(x4) PARTITION BY x4 " +
+                        "COPARTITION (t2, t4)))",
+                "VALUES (true, 1, null), (true, 2, 2), (true, null, null), (true, null, 3)");
+
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, null, null, 2, 2) t2(x2) PARTITION BY x2 PRUNE WHEN EMPTY," +
+                        "input_3 => TABLE(VALUES 4, 5) t3(x3)," +
+                        "input_4 => TABLE(VALUES null, 2, 2, 2, 3) t4(x4) PARTITION BY x4 PRUNE WHEN EMPTY " +
+                        "COPARTITION (t2, t4)))",
+                "VALUES (true, 2, 2), (true, null, null)");
+
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, null, null) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 2, 2, null) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 2, 3, 3) t4(x4) PARTITION BY x4 " +
+                        "COPARTITION (t2, t4, t3)))",
+                "VALUES (true, 1, null, null), (true, null, null, null), (true, null, 2, 2), (true, null, null, 3)");
+
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, null, null) t2(x2) PARTITION BY x2," +
+                        "input_3 => TABLE(VALUES 2, 2, null) t3(x3) PARTITION BY x3 PRUNE WHEN EMPTY," +
+                        "input_4 => TABLE(VALUES 2, 3, 3) t4(x4) PARTITION BY x4 " +
+                        "COPARTITION (t2, t4, t3)))",
+                "VALUES (true, CAST(null AS integer), null, null), (true, null, 2, 2)");
+
+        assertQuery("SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, null, null) t2(x2) PARTITION BY x2 PRUNE WHEN EMPTY," +
+                        "input_3 => TABLE(VALUES 2, 2, null) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 2, 3, 3) t4(x4) PARTITION BY x4 " +
+                        "COPARTITION (t2, t4, t3)))",
+                "VALUES (true, 1, CAST(null AS integer), CAST(null AS integer)), (true, null, null, null)");
+
+        assertQueryReturnsEmptyResult(
+                "SELECT *" +
+                        "FROM TABLE(test_inputs_function(" +
+                        "input_1 => TABLE(VALUES 1, 2, 3)," +
+                        "input_2 => TABLE(VALUES 1, 1, null, null) t2(x2) PARTITION BY x2 PRUNE WHEN EMPTY," +
+                        "input_3 => TABLE(VALUES 2, 2, null) t3(x3) PARTITION BY x3," +
+                        "input_4 => TABLE(VALUES 2, 3, 3) t4(x4) PARTITION BY x4 PRUNE WHEN EMPTY " +
+                        "COPARTITION (t2, t4, t3)))");
     }
 
     private static Path getLocalPluginDirectory()

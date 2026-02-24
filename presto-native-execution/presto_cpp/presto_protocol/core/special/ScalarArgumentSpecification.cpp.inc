@@ -29,8 +29,6 @@ void to_json(json& j, const ScalarArgumentSpecification& p) {
       "ScalarArgumentSpecification",
       "bool",
       "required");
-  // Only include defaultValue if it's not empty
-  // Send as string - Java side will handle conversion
   if (!p.defaultValue.empty()) {
     j["defaultValue"] = p.defaultValue;
   }

@@ -571,7 +571,7 @@ public class TestTableFunctionInvocation
                         "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
                 "VALUES (true, true, 3, 'c', 5, 'e')");
 
-        /*// all pass-through columns are referenced. Proper columns are not referenced, but they are not pruned.
+        // all pass-through columns are referenced. Proper columns are not referenced, but they are not pruned.
         assertQuery("SELECT x1, x2, y1, y2 " +
                         "FROM TABLE(system.pass_through( " +
                         "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
@@ -596,7 +596,7 @@ public class TestTableFunctionInvocation
                         "FROM TABLE(system.pass_through( " +
                         "                            TABLE(VALUES (1, 'a'), (2, 'b'), (3, 'c')) t1(x1, x2)," +
                         "                            TABLE(VALUES (4, 'd'), (5, 'e')) t2(y1, y2))) t(p1, p2)",
-                "VALUES ('x')");*/
+                "VALUES ('x')");
     }
 
     @Test
