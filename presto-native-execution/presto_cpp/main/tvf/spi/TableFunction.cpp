@@ -47,6 +47,7 @@ bool registerTableFunction(
     TableFunctionSplitProcessorFactory splitProcessorfactory,
     TableFunctionSplitGenerator splitGenerator) {
   auto sanitizedName = exec::sanitizeName(name);
+  LOG(INFO) << "Registering table function: '" << name << "' (sanitized: '" << sanitizedName << "')";
   tableFunctions().insert(
       {sanitizedName,
        {std::move(argumentsSpec),
@@ -55,6 +56,7 @@ bool registerTableFunction(
         std::move(dataProcessorfactory),
         std::move(splitProcessorfactory),
         std::move(splitGenerator)}});
+  LOG(INFO) << "Successfully registered table function: '" << sanitizedName << "'";
   return true;
 }
 

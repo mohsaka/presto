@@ -25,7 +25,7 @@ TableFunctionPartition::TableFunctionPartition(
     const std::vector<velox::column_index_t>& inputMapping,
     const std::vector<velox::RowTypePtr>& requiredColumnTypes,
     const std::vector<std::vector<velox::column_index_t>>& requiredColumns,
-    const std::unordered_map<velox::column_index_t, velox::column_index_t>&
+    const std::vector<std::pair<velox::column_index_t, velox::column_index_t>>&
         markerChannels,
     const std::vector<
         TableFunctionProcessorNode::PassThroughColumnSpecification>&
@@ -49,6 +49,7 @@ TableFunctionPartition::~TableFunctionPartition() {
 }
 
 void TableFunctionPartition::initNullPositions() {
+  // Collect all channels that need null position tracking (as input channels)
   std::vector<column_index_t> referencedChannels;
   for (const auto& channels : requiredColumns_) {
     for (const auto& channel : channels) {
@@ -65,32 +66,45 @@ void TableFunctionPartition::initNullPositions() {
     return;
   }
 
-  int maxInputChannel =
-      *std::max_element(referencedChannels.begin(), referencedChannels.end());
-  nullPositions_.resize(maxInputChannel + 1);
+  // nullPositions_ is indexed by PARTITION column index, not input column index
+  // Find the max partition column index we need
+  int maxPartitionColumn = 0;
+  for (int inputChannel : referencedChannels) {
+    int partitionColumn = inputMapping_[inputChannel];
+    maxPartitionColumn = std::max(maxPartitionColumn, partitionColumn);
+  }
+  nullPositions_.resize(maxPartitionColumn + 1);
 
   if (markerChannels_.empty()) {
-    // No marker channels, set end-of-data to partitionEnd for all referenced
-    // channels
-    for (int channel : referencedChannels) {
-      nullPositions_[channel] = numRows();
+    // No marker channels, set end-of-data to partitionEnd for all referenced channels
+    for (int inputChannel : referencedChannels) {
+      int partitionColumn = inputMapping_[inputChannel];
+      nullPositions_[partitionColumn] = numRows();
     }
     return;
   }
 
   // Marker channels are present
-  std::vector<vector_size_t> markerChannelNullPositions;
-  markerChannelNullPositions.resize(markerChannels_.size());
-  for (const auto& [_, markerChannel] : markerChannels_) {
-    markerChannelNullPositions[markerChannel] =
-        findFirstNull(data_->columnAt(inputMapping_[markerChannel]));
+  std::unordered_map<int32_t, vector_size_t> markerChannelNullPositions;
+  for (const auto& [_, markerInputChannel] : markerChannels_) {
+    int markerPartitionColumn = inputMapping_[markerInputChannel];
+    markerChannelNullPositions[markerInputChannel] =
+        findFirstNull(data_->columnAt(markerPartitionColumn));
   }
 
-  for (int channel : referencedChannels) {
-    auto it = markerChannels_.find(channel);
+  for (int inputChannel : referencedChannels) {
+    int partitionColumn = inputMapping_[inputChannel];
+    // Find inputChannel in markerChannels_ vector
+    auto it = std::find_if(
+        markerChannels_.begin(),
+        markerChannels_.end(),
+        [inputChannel](const auto& pair) { return pair.first == inputChannel; });
     if (it != markerChannels_.end()) {
-      int markerChannel = it->second;
-      nullPositions_[channel] = markerChannelNullPositions[markerChannel];
+      int markerInputChannel = it->second;
+      nullPositions_[partitionColumn] = markerChannelNullPositions[markerInputChannel];
+    } else {
+      // Channel has no marker, so all rows are valid (set to partition end)
+      nullPositions_[partitionColumn] = numRows();
     }
   }
 }
@@ -101,6 +115,8 @@ void TableFunctionPartition::extractPartitionColumn(
   auto numRows = result->size();
   std::vector<vector_size_t> rowNumbers;
   rowNumbers.reserve(numRows);
+  // Partitioning columns have the same value for all rows in the partition
+  // Extract row 0 (partition start) and repeat it for all output rows
   for (vector_size_t i = 0; i < numRows; ++i) {
     rowNumbers.push_back(0);
   }
@@ -131,14 +147,48 @@ void TableFunctionPartition::extractPassThroughIndexColumn(
   auto numRows = functionOutput->size();
   std::vector<vector_size_t> rowNumbers;
   rowNumbers.reserve(numRows);
+  
+  // Index columns are INTEGER (int32_t) in Velox
   FlatVector<int32_t>* passThroughIndexVector =
       functionOutput->childAt(passThroughIndex)->as<FlatVector<int32_t>>();
-  for (vector_size_t i = 0; i < functionOutput->size(); ++i) {
-    rowNumbers.push_back(passThroughIndexVector->valueAt(i));
+  
+  VELOX_CHECK_NOT_NULL(
+      passThroughIndexVector,
+      "Pass-through index column at position {} must be INTEGER type",
+      passThroughIndex);
+  
+  bool hasNonNullIndices = false;
+  for (vector_size_t i = 0; i < numRows; ++i) {
+    if (passThroughIndexVector->isNullAt(i)) {
+      // For NULL index values, we still need to add a placeholder row number
+      // The actual NULL will be set by checking the index vector's null flags
+      rowNumbers.push_back(0);  // Placeholder, will be marked as NULL
+      result->setNull(i, true);
+    } else {
+      int32_t indexValue = passThroughIndexVector->valueAt(i);
+      rowNumbers.push_back(static_cast<vector_size_t>(indexValue));
+      hasNonNullIndices = true;
+    }
   }
 
-  auto rowNumbersRange = folly::Range(rowNumbers.data(), numRows);
-  extractColumn(columnIndex, rowNumbersRange, 0, result);
+  // Only extract from partition if partition has rows AND we have non-NULL indices
+  if (partition_.size() > 0 && hasNonNullIndices) {
+    auto rowNumbersRange = folly::Range(rowNumbers.data(), numRows);
+    // columnIndex is an input column index, so use extractColumn which maps it
+    extractColumn(columnIndex, rowNumbersRange, 0, result);
+    
+    // Re-apply NULL flags for rows where the index was NULL
+    for (vector_size_t i = 0; i < numRows; ++i) {
+      if (passThroughIndexVector->isNullAt(i)) {
+        result->setNull(i, true);
+      }
+    }
+  } else {
+    // When partition is empty or all indices are NULL, ensure all rows are marked as NULL
+    for (vector_size_t i = 0; i < numRows; ++i) {
+      result->setNull(i, true);
+    }
+  }
 }
 
 void TableFunctionPartition::extractColumn(
@@ -202,30 +252,69 @@ std::vector<velox::RowVectorPtr> TableFunctionPartition::assembleInput(
   const auto numRowsLeft = numRows() - numPartitionProcessedRows;
   VELOX_CHECK_GT(numRowsLeft, 0);
 
+  // For each input, determine how many rows it can provide
+  std::vector<int> inputNonNullRows;
+  inputNonNullRows.reserve(requiredColumns_.size());
+  int maxNonNullRows = 0;
+  
+  for (int i = 0; i < requiredColumns_.size(); i++) {
+    auto partitionColumnIndex = inputMapping_[requiredColumns_[i][0]];
+    auto numNonNullRows = std::max(
+        nullPositions_[partitionColumnIndex] - numPartitionProcessedRows, 0);
+    inputNonNullRows.push_back(numNonNullRows);
+    maxNonNullRows = std::max(maxNonNullRows, numNonNullRows);
+  }
+  
+  // For set semantics with multiple inputs where some inputs are empty (keepWhenEmpty):
+  // - If ALL inputs are empty, return nullptr for all
+  // - If SOME inputs have data, create empty RowVectors for empty inputs and proper RowVectors for non-empty ones
+  if (maxNonNullRows == 0 && requiredColumns_.size() > 1) {
+    // All inputs are empty
+    for (int i = 0; i < requiredColumns_.size(); i++) {
+      result.push_back(nullptr);
+    }
+    return result;
+  }
+  
+  // Process each input independently
   for (int i = 0; i < requiredColumns_.size(); i++) {
     auto tableArgType = requiredColumnTypes_[i];
-    auto numNonNullRows = std::max(
-        nullPositions_[requiredColumns_[i][0]] - numPartitionProcessedRows, 0);
-    const auto numNonNullOutputRows =
-        std::min(numRowsPerOutput, numNonNullRows);
+    auto partitionColumnIndex = inputMapping_[requiredColumns_[i][0]];
+    auto nullPosition = nullPositions_[partitionColumnIndex];
+    auto inputRows = inputNonNullRows[i];
+    
+    // Determine output rows for this input:
+    // - If input is empty (inputRows == 0), create empty RowVector (size 0) for keepWhenEmpty semantics
+    // - Otherwise, process up to numRowsPerOutput or available rows
+    const auto numOutputRows = (inputRows == 0)
+        ? 0  // Empty input - create empty RowVector
+        : std::min(numRowsPerOutput, inputRows);
 
     auto input = BaseVector::create<RowVector>(
-        tableArgType, numNonNullOutputRows, pool_);
-    for (int j = 0; j < tableArgType->children().size(); j++) {
-      auto numNonNullRowsCol = std::max(
-          nullPositions_[requiredColumns_[i][j]] - numPartitionProcessedRows,
-          0);
-      VELOX_CHECK_EQ(numNonNullRows, numNonNullRowsCol);
-
-      auto columnVector = BaseVector::create(
-          tableArgType->childAt(j), numNonNullOutputRows, pool_);
-      extractColumn(
-          requiredColumns_[i][j],
-          numPartitionProcessedRows,
-          numNonNullOutputRows,
-          0,
-          columnVector);
-      input->childAt(j) = columnVector;
+        tableArgType, numOutputRows, pool_);
+        
+    if (numOutputRows > 0) {
+      for (int j = 0; j < tableArgType->children().size(); j++) {
+        auto columnVector = BaseVector::create(
+            tableArgType->childAt(j), numOutputRows, pool_);
+        extractColumn(
+            requiredColumns_[i][j],  // Pass INPUT column index, extractColumn will map it
+            numPartitionProcessedRows,
+            numOutputRows,
+            0,
+            columnVector);
+        
+        // For rows beyond the nullPosition marker, set them to null
+        // This handles the case where shorter inputs are padded in the cross-product
+        for (int rowIdx = 0; rowIdx < numOutputRows; rowIdx++) {
+          int absoluteRowIdx = numPartitionProcessedRows + rowIdx;
+          if (absoluteRowIdx >= nullPosition) {
+            columnVector->setNull(rowIdx, true);
+          }
+        }
+        
+        input->childAt(j) = columnVector;
+      }
     }
     result.push_back(input);
   }
@@ -239,31 +328,104 @@ RowVectorPtr TableFunctionPartition::appendPassThroughColumns(
     return functionOutput;
   }
 
-  VELOX_CHECK_EQ(
-      functionOutput->children().size() + passThroughSpecifications_.size(),
-      outputType_->size());
   auto numOutputRows = functionOutput->size();
-  auto result =
-      BaseVector::create<RowVector>(outputType_, numOutputRows, pool_);
-  // Copy function output columns.
-  for (int i = 0; i < functionOutput->children().size(); i++) {
-    result->childAt(i) = functionOutput->childAt(i);
+  
+  // Handle the case where all columns are pruned (outputType_ has 0 children)
+  // In this case, we just return an empty RowVector with the correct row count
+  // This can happen with ONLY_PASS_THROUGH functions when all pass-through columns are pruned
+  if (outputType_->size() == 0) {
+    return BaseVector::create<RowVector>(outputType_, numOutputRows, pool_);
   }
 
-  // Copy passthrough columns.
-  for (const auto& spec : passThroughSpecifications_) {
-    auto passThroughColumn = BaseVector::create(
-        outputType_->childAt(spec.inputChannel()), numOutputRows, pool_);
-    if (spec.isPartitioningColumn()) {
-      extractPartitionColumn(spec.inputChannel(), passThroughColumn);
-    } else {
-      extractPassThroughIndexColumn(
-          spec.inputChannel(),
-          spec.indexChannel(),
-          functionOutput,
-          passThroughColumn);
+  // For ONLY_PASS_THROUGH functions, all output columns come from pass-through
+  // The function output only contains index columns for non-partitioning pass-through
+  bool isOnlyPassThrough = (passThroughSpecifications_.size() == outputType_->size());
+  
+  if (isOnlyPassThrough) {
+    VELOX_CHECK_EQ(passThroughSpecifications_.size(), outputType_->size());
+  } else {
+    // For functions with pass-through columns, the function output contains:
+    // - Proper columns (declared in return type)
+    // - Index columns (one or more, depending on number of pass-through sources)
+    // The outputType_ contains:
+    // - Proper columns + pass-through columns
+    //
+    // The number of proper columns in the output = outputType_->size() - passThroughSpecifications_.size()
+    // This is because outputType contains proper columns + pass-through columns
+    
+    size_t numProperColumnsInOutput = outputType_->size() - passThroughSpecifications_.size();
+    
+    // The function output should have: proper columns + index columns
+    // We validate that the function output has at least the proper columns
+    VELOX_CHECK_GE(
+        functionOutput->children().size(),
+        numProperColumnsInOutput,
+        "Function output must have at least {} proper columns, but has only {} total columns",
+        numProperColumnsInOutput,
+        functionOutput->children().size());
+  }
+  
+  auto result =
+      BaseVector::create<RowVector>(outputType_, numOutputRows, pool_);
+  
+  if (isOnlyPassThrough) {
+    // For ONLY_PASS_THROUGH, all output columns come from pass-through
+    // Function output only contains index columns, not proper output columns
+    for (const auto& spec : passThroughSpecifications_) {
+      auto passThroughColumn = BaseVector::create(
+          outputType_->childAt(spec.outputChannel()), numOutputRows, pool_);
+      if (spec.isPartitioningColumn()) {
+        extractPartitionColumn(spec.inputChannel(), passThroughColumn);
+      } else {
+        // Only extract using index column if the function output has children
+        // When all columns are pruned, functionOutput may have 0 children
+        if (spec.indexChannel() < functionOutput->childrenSize()) {
+          extractPassThroughIndexColumn(
+              spec.inputChannel(),
+              spec.indexChannel(),
+              functionOutput,
+              passThroughColumn);
+        }
+      }
+      result->childAt(spec.outputChannel()) = passThroughColumn;
     }
-    result->childAt(spec.inputChannel()) = passThroughColumn;
+  } else {
+    // For functions with pass-through, copy only the proper columns (not index columns)
+    // The function output contains: proper columns + index column(s)
+    // Count the number of unique index channels (each represents a different pass-through source)
+    std::unordered_set<int> uniqueIndexChannels;
+    for (const auto& spec : passThroughSpecifications_) {
+      if (!spec.isPartitioningColumn()) {
+        uniqueIndexChannels.insert(spec.indexChannel());
+      }
+    }
+    
+    size_t numIndexColumns = uniqueIndexChannels.size();
+    size_t numProperColumns = functionOutput->children().size() - numIndexColumns;
+
+    for (size_t i = 0; i < numProperColumns; i++) {
+      result->childAt(i) = functionOutput->childAt(i);
+    }
+
+    // Copy passthrough columns using index columns from function output
+    for (const auto& spec : passThroughSpecifications_) {
+      auto passThroughColumn = BaseVector::create(
+          outputType_->childAt(spec.outputChannel()), numOutputRows, pool_);
+      
+      // Only extract if there are rows to extract
+      if (numOutputRows > 0) {
+        if (spec.isPartitioningColumn()) {
+          extractPartitionColumn(spec.inputChannel(), passThroughColumn);
+        } else {
+          extractPassThroughIndexColumn(
+              spec.inputChannel(),
+              spec.indexChannel(),
+              functionOutput,
+              passThroughColumn);
+        }
+      }
+      result->childAt(spec.outputChannel()) = passThroughColumn;
+    }
   }
   return result;
 }

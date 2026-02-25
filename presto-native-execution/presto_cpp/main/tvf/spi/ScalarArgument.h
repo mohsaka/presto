@@ -44,8 +44,10 @@ class ScalarArgumentSpecification : public ArgumentSpecification {
   ScalarArgumentSpecification(
       std::string name,
       velox::TypePtr type,
-      bool required)
-      : ArgumentSpecification(name, required), type_(std::move(type)) {};
+      bool required,
+      std::string defaultValue = "")
+      : ArgumentSpecification(name, required, std::move(defaultValue)),
+        type_(std::move(type)) {};
 
   const velox::TypePtr rowType() const {
     return type_;
