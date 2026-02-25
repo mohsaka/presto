@@ -151,12 +151,7 @@ class TableFunctionProcessorNode : public velox::core::PlanNode {
   }
 
   bool requiresSplits() const override {
-    if (sources_.empty()) {
-      // This is a leaf operator that needs splits then.
-      return true;
-    }
-
-    return false;
+    return sources_.empty();
   }
 
   folly::dynamic serialize() const override;

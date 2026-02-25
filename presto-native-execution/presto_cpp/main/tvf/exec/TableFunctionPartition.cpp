@@ -113,16 +113,8 @@ void TableFunctionPartition::extractPartitionColumn(
     int32_t columnIndex,
     const VectorPtr& result) const {
   auto numRows = result->size();
-  std::vector<vector_size_t> rowNumbers;
-  rowNumbers.reserve(numRows);
-  // Partitioning columns have the same value for all rows in the partition
-  // Extract row 0 (partition start) and repeat it for all output rows
-  for (vector_size_t i = 0; i < numRows; ++i) {
-    rowNumbers.push_back(0);
-  }
-
-  auto rowNumbersRange = folly::Range(rowNumbers.data(), numRows);
-  extractColumn(columnIndex, rowNumbersRange, 0, result);
+  std::vector<vector_size_t> rowNumbers(numRows, 0);
+  extractColumn(columnIndex, folly::Range(rowNumbers.data(), numRows), 0, result);
 }
 
 void TableFunctionPartition::extractColumn(
@@ -160,31 +152,22 @@ void TableFunctionPartition::extractPassThroughIndexColumn(
   bool hasNonNullIndices = false;
   for (vector_size_t i = 0; i < numRows; ++i) {
     if (passThroughIndexVector->isNullAt(i)) {
-      // For NULL index values, we still need to add a placeholder row number
-      // The actual NULL will be set by checking the index vector's null flags
-      rowNumbers.push_back(0);  // Placeholder, will be marked as NULL
+      rowNumbers.push_back(0);
       result->setNull(i, true);
     } else {
-      int32_t indexValue = passThroughIndexVector->valueAt(i);
-      rowNumbers.push_back(static_cast<vector_size_t>(indexValue));
+      rowNumbers.push_back(static_cast<vector_size_t>(passThroughIndexVector->valueAt(i)));
       hasNonNullIndices = true;
     }
   }
 
-  // Only extract from partition if partition has rows AND we have non-NULL indices
   if (partition_.size() > 0 && hasNonNullIndices) {
-    auto rowNumbersRange = folly::Range(rowNumbers.data(), numRows);
-    // columnIndex is an input column index, so use extractColumn which maps it
-    extractColumn(columnIndex, rowNumbersRange, 0, result);
-    
-    // Re-apply NULL flags for rows where the index was NULL
+    extractColumn(columnIndex, folly::Range(rowNumbers.data(), numRows), 0, result);
     for (vector_size_t i = 0; i < numRows; ++i) {
       if (passThroughIndexVector->isNullAt(i)) {
         result->setNull(i, true);
       }
     }
   } else {
-    // When partition is empty or all indices are NULL, ensure all rows are marked as NULL
     for (vector_size_t i = 0; i < numRows; ++i) {
       result->setNull(i, true);
     }
@@ -252,7 +235,6 @@ std::vector<velox::RowVectorPtr> TableFunctionPartition::assembleInput(
   const auto numRowsLeft = numRows() - numPartitionProcessedRows;
   VELOX_CHECK_GT(numRowsLeft, 0);
 
-  // For each input, determine how many rows it can provide
   std::vector<int> inputNonNullRows;
   inputNonNullRows.reserve(requiredColumns_.size());
   int maxNonNullRows = 0;
@@ -265,30 +247,17 @@ std::vector<velox::RowVectorPtr> TableFunctionPartition::assembleInput(
     maxNonNullRows = std::max(maxNonNullRows, numNonNullRows);
   }
   
-  // For set semantics with multiple inputs where some inputs are empty (keepWhenEmpty):
-  // - If ALL inputs are empty, return nullptr for all
-  // - If SOME inputs have data, create empty RowVectors for empty inputs and proper RowVectors for non-empty ones
   if (maxNonNullRows == 0 && requiredColumns_.size() > 1) {
-    // All inputs are empty
-    for (int i = 0; i < requiredColumns_.size(); i++) {
-      result.push_back(nullptr);
-    }
+    result.resize(requiredColumns_.size(), nullptr);
     return result;
   }
   
-  // Process each input independently
   for (int i = 0; i < requiredColumns_.size(); i++) {
     auto tableArgType = requiredColumnTypes_[i];
     auto partitionColumnIndex = inputMapping_[requiredColumns_[i][0]];
     auto nullPosition = nullPositions_[partitionColumnIndex];
     auto inputRows = inputNonNullRows[i];
-    
-    // Determine output rows for this input:
-    // - If input is empty (inputRows == 0), create empty RowVector (size 0) for keepWhenEmpty semantics
-    // - Otherwise, process up to numRowsPerOutput or available rows
-    const auto numOutputRows = (inputRows == 0)
-        ? 0  // Empty input - create empty RowVector
-        : std::min(numRowsPerOutput, inputRows);
+    const auto numOutputRows = (inputRows == 0) ? 0 : std::min(numRowsPerOutput, inputRows);
 
     auto input = BaseVector::create<RowVector>(
         tableArgType, numOutputRows, pool_);
