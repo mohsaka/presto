@@ -546,15 +546,25 @@ json getAnalyzedTableValueFunction(
         auto descriptorArgument =
             std::dynamic_pointer_cast<protocol::DescriptorArgument>(
                 entry.second)) {
-      std::vector<std::string> fieldNames;
-      std::vector<velox::TypePtr> fieldTypes;
-      for (auto& arg : descriptorArgument->descriptor->fields) {
-        fieldNames.push_back(boost::algorithm::to_lower_copy(*arg.name));
-        // fieldTypes.push_back(parser.parse(*arg.type));
-      }
-      functionArg = std::make_shared<tvf::Descriptor>(std::move(fieldNames)
-                                                      //, std::move(fieldTypes)
-      );
+        if (!descriptorArgument->descriptor) {
+          // Null descriptor — pass nullptr so analyze() can produce a proper user error
+          functionArg = nullptr;
+        } else {
+          std::vector<std::string> fieldNames;
+          std::vector<velox::TypePtr> fieldTypes;
+          for (auto& arg : descriptorArgument->descriptor->fields) {
+            fieldNames.push_back(boost::algorithm::to_lower_copy(*arg.name));
+            if (arg.type) {
+              fieldTypes.push_back(parser.parse(*arg.type));
+            }
+          }
+          if (fieldTypes.size()) {
+            functionArg = std::make_shared<tvf::Descriptor>(std::move(fieldNames), std::move(fieldTypes));
+          } else {
+            functionArg = std::make_shared<tvf::Descriptor>(std::move(fieldNames));
+          }
+
+        }
     } else {
       VELOX_UNSUPPORTED("Failed to convert to a valid Argument");
     }
