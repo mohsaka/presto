@@ -1567,13 +1567,27 @@ public class AddExchanges
                 // TODO: add FIXED_ARBITRARY_DISTRIBUTION support on non empty singleNodeChildren
                 if (!parentPartitioningPreference.isPresent() || parentPartitioningPreference.get().isDistributed()) {
                     // TODO: can we insert LOCAL exchange for one child SOURCE distributed and another HASH distributed?
-                    if (getNumberOfTableScans(distributedChildren) == 0 && isSameOrSystemCompatiblePartitions(extractRemoteExchangePartitioningHandles(distributedChildren))) {
+                    int tableScans = getNumberOfTableScans(distributedChildren);
+                    boolean samePartitions = isSameOrSystemCompatiblePartitions(extractRemoteExchangePartitioningHandles(distributedChildren));
+                    
+                    System.out.println("\n=== AddExchanges.visitUnion DEBUG ===");
+                    System.out.println("UnionNode ID: " + node.getId());
+                    System.out.println("Number of distributed children: " + distributedChildren.size());
+                    System.out.println("Number of table scans: " + tableScans);
+                    System.out.println("Same/compatible partitions: " + samePartitions);
+                    
+                    if (tableScans == 0 && samePartitions) {
+                        System.out.println("DECISION: NO REMOTE EXCHANGE - Keeping children in same fragment (LOCAL exchange)");
+                        System.out.println("This will result in multiple split sources in one fragment!");
+                        System.out.println("======================================\n");
                         // No source distributed child, we can use insert LOCAL exchange
                         // TODO: if all children have the same partitioning, pass this partitioning to the parent
                         // instead of "arbitraryPartition".
                         return new PlanWithProperties(node.replaceChildren(distributedChildren));
                     }
                     else if (preferDistributedUnion) {
+                        System.out.println("DECISION: Using FIXED_ARBITRARY_DISTRIBUTION - Separate fragments");
+                        System.out.println("======================================\n");
                         // Presto currently can not execute stage that has multiple table scans, so in that case
                         // we have to insert REMOTE exchange with FIXED_ARBITRARY_DISTRIBUTION instead of local exchange
                         return new PlanWithProperties(

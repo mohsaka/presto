@@ -100,9 +100,20 @@ public class SplitSourceFactory
 
     public Map<PlanNodeId, SplitSource> createSplitSources(PlanFragment fragment, Session session, TableWriteInfo tableWriteInfo)
     {
+        System.out.println("\n=== SplitSourceFactory.createSplitSources DEBUG ===");
+        System.out.println("Fragment ID: " + fragment.getId());
+        System.out.println("Fragment Root: " + fragment.getRoot().getClass().getSimpleName());
+        System.out.println("Fragment Partitioning: " + fragment.getPartitioning());
+        
         ImmutableList.Builder<SplitSource> splitSources = ImmutableList.builder();
         try {
-            return fragment.getRoot().accept(new Visitor(session, fragment.getStageExecutionDescriptor(), splitSources), new Context(tableWriteInfo));
+            Map<PlanNodeId, SplitSource> result = fragment.getRoot().accept(new Visitor(session, fragment.getStageExecutionDescriptor(), splitSources), new Context(tableWriteInfo));
+            System.out.println("Created Split Sources: " + result.size());
+            for (Map.Entry<PlanNodeId, SplitSource> entry : result.entrySet()) {
+                System.out.println("  - PlanNodeId: " + entry.getKey() + ", SplitSource: " + entry.getValue().getClass().getSimpleName());
+            }
+            System.out.println("===================================================\n");
+            return result;
         }
         catch (Throwable t) {
             splitSources.build().forEach(SplitSourceFactory::closeSplitSource);
