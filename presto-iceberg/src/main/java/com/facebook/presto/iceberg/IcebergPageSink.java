@@ -159,6 +159,7 @@ public class IcebergPageSink
         this.sortOrder = requireNonNull(sortOrder, "sortOrder is null");
         String tempDirectoryPath = locationProvider.newDataLocation("sort-tmp-files");
         this.tempDirectory = new Path(tempDirectoryPath);
+        // Changed to getColumnsForWrite
         List<Type> types = getColumnsForWrite(outputSchema, partitionSpec, requireNonNull(sortParameters.getTypeManager(), "typeManager is null")).stream()
                 .map(IcebergColumnHandle::getType)
                 .collect(toImmutableList());

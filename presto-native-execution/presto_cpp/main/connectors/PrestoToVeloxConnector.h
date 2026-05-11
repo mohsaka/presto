@@ -77,7 +77,8 @@ class PrestoToVeloxConnector {
       velox::connector::ConnectorInsertTableHandle>
   toVeloxInsertTableHandle(
       const protocol::CreateHandle* createHandle,
-      const TypeParser& typeParser) const {
+      const TypeParser& typeParser,
+      velox::memory::MemoryPool* pool) const {
     return {};
   }
 
@@ -85,7 +86,8 @@ class PrestoToVeloxConnector {
       velox::connector::ConnectorInsertTableHandle>
   toVeloxInsertTableHandle(
       const protocol::InsertHandle* insertHandle,
-      const TypeParser& typeParser) const {
+      const TypeParser& typeParser,
+      velox::memory::MemoryPool* pool) const {
     return {};
   }
 
