@@ -197,7 +197,7 @@ public class RewriteDataFilesProcedure
                     tableHandle.getIcebergTableName(),
                     toPrestoSchema(icebergTable.schema(), typeManager),
                     toPrestoPartitionSpec(icebergTable.spec(), typeManager),
-                    getColumns(icebergTable.schema(), icebergTable.spec(), typeManager),
+                    getColumns(session, icebergTable.schema(), icebergTable.spec(), typeManager),
                     icebergTable.location(),
                     getFileFormat(icebergTable),
                     getCompressionCodec(session),

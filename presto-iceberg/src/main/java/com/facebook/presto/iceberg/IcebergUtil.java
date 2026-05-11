@@ -425,20 +425,25 @@ public final class IcebergUtil
                 .collect(toImmutableList());
     }
 
-    public static List<IcebergColumnHandle> getColumnsForWrite(Schema schema, PartitionSpec partitionSpec, TypeManager typeManager)
+    public static List<IcebergColumnHandle> getColumnsForWrite(ConnectorSession session, Schema schema, PartitionSpec partitionSpec, TypeManager typeManager)
     {
-        return getColumnsForWrite(schema.columns().stream().map(NestedField::fieldId), schema, partitionSpec, typeManager);
+        return getColumnsForWrite(session, schema.columns().stream().map(NestedField::fieldId), schema, partitionSpec, typeManager);
     }
 
-    private static List<IcebergColumnHandle> getColumnsForWrite(Stream<Integer> fields, Schema schema, PartitionSpec partitionSpec, TypeManager typeManager)
+    private static List<IcebergColumnHandle> getColumnsForWrite(ConnectorSession session, Stream<Integer> fields, Schema schema, PartitionSpec partitionSpec, TypeManager typeManager)
     {
-        Set<Integer> partitionSourceIds = partitionSpec.fields().stream()
-                .map(PartitionField::sourceId)
-                .collect(toImmutableSet());
+        IcebergPartitionType partitionType = IDENTITY;
+        if (session instanceof FullConnectorSession) {
+            Optional<QueryType> queryType = ((FullConnectorSession) session).getSession().getQueryType();
+            if (queryType.isPresent() && queryType.get() == QueryType.INSERT) {
+                partitionType = ALL;
+            }
+        }
+        Set<String> partitionFieldNames = getPartitionFields(partitionSpec, partitionType).keySet();
 
         return fields
                 .map(schema::findField)
-                .map(column -> partitionSourceIds.contains(column.fieldId()) ?
+                .map(column -> partitionFieldNames.contains(column.name()) ?
                         IcebergColumnHandle.create(column, typeManager, PARTITION_KEY) :
                         IcebergColumnHandle.create(column, typeManager, REGULAR))
                 .collect(toImmutableList());

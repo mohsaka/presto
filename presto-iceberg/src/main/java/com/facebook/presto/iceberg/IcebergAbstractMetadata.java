@@ -689,7 +689,7 @@ public abstract class IcebergAbstractMetadata
                 table.getIcebergTableName(),
                 toPrestoSchema(icebergTable.schema(), typeManager),
                 toPrestoPartitionSpec(icebergTable.spec(), typeManager),
-                getColumnsForWrite(icebergTable.schema(), icebergTable.spec(), typeManager),
+                getColumnsForWrite(session, icebergTable.schema(), icebergTable.spec(), typeManager),
                 icebergTable.location(),
                 getFileFormat(icebergTable),
                 getCompressionCodec(session),
