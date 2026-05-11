@@ -437,6 +437,7 @@ public class IcebergHiveMetadata
                 new IcebergTableName(tableName, DATA, Optional.empty(), Optional.empty(), Optional.empty()),
                 toPrestoSchema(metadata.schema(), typeManager),
                 toPrestoPartitionSpec(metadata.spec(), typeManager),
+                // TODO: Changed from getColumns to getColumnsForWrite
                 getColumnsForWrite(metadata.schema(), metadata.spec(), typeManager),
                 targetPath,
                 fileFormat,
