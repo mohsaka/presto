@@ -480,7 +480,7 @@ public class IcebergNativeMetadata
                 toPrestoSchema(icebergTable.schema(), typeManager),
                 toPrestoPartitionSpec(icebergTable.spec(), typeManager),
                 // Changed to getColumnsForWrite
-                getColumnsForWrite(icebergTable.schema(), icebergTable.spec(), typeManager),
+                getColumnsForWrite(session, icebergTable.schema(), icebergTable.spec(), typeManager),
                 icebergTable.location(),
                 fileFormat,
                 getCompressionCodec(session),

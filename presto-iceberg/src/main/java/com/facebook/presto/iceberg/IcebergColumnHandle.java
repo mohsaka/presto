@@ -268,7 +268,6 @@ public class IcebergColumnHandle
                 columnType);
     }
 
-
     public static Subfield getPushedDownSubfield(IcebergColumnHandle column)
     {
         checkArgument(isPushedDownSubfield(column), format("not a valid pushed down subfield: type=%s, subfields=%s", column.getColumnType(), column.getRequiredSubfields()));

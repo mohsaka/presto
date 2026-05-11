@@ -438,7 +438,7 @@ public class IcebergHiveMetadata
                 toPrestoSchema(metadata.schema(), typeManager),
                 toPrestoPartitionSpec(metadata.spec(), typeManager),
                 // TODO: Changed from getColumns to getColumnsForWrite
-                getColumnsForWrite(metadata.schema(), metadata.spec(), typeManager),
+                getColumnsForWrite(session, metadata.schema(), metadata.spec(), typeManager),
                 targetPath,
                 fileFormat,
                 getCompressionCodec(session),
