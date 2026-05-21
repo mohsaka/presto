@@ -608,7 +608,6 @@
         <dependency>
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -619,7 +618,6 @@
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-main-base</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.facebook.presto</groupId>
@@ -634,12 +632,10 @@
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-parser</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-analyzer</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -708,7 +704,6 @@
         <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -782,7 +777,6 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -798,6 +792,11 @@
                         <ignoredNonTestScopedDependency>org.apache.httpcomponents.core5:httpcore5</ignoredNonTestScopedDependency>
                         <ignoredNonTestScopedDependency>com.amazonaws:aws-java-sdk-s3</ignoredNonTestScopedDependency>
                         <ignoredNonTestScopedDependency>com.amazonaws:aws-java-sdk-core</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>org.apache.commons:commons-math3</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>com.facebook.presto:presto-parser</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>com.facebook.presto:presto-analyzer</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>org.jetbrains:annotations</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>jakarta.servlet:jakarta.servlet-api</ignoredNonTestScopedDependency>
                     </ignoredNonTestScopedDependencies>
                     <!--                    <ignoredUsedUndeclaredDependencies>-->
                     <!--                        &lt;!&ndash; Ignore these because they are picked up as false-positives when configuring logging in the IcebergQueryRunner &ndash;&gt;-->

@@ -46,12 +46,14 @@ class HivePrestoToVeloxConnector final : public PrestoToVeloxConnector {
   std::unique_ptr<velox::connector::ConnectorInsertTableHandle>
   toVeloxInsertTableHandle(
       const protocol::CreateHandle* createHandle,
-      const TypeParser& typeParser) const final;
+      const TypeParser& typeParser,
+      velox::memory::MemoryPool* pool) const final;
 
   std::unique_ptr<velox::connector::ConnectorInsertTableHandle>
   toVeloxInsertTableHandle(
       const protocol::InsertHandle* insertHandle,
-      const TypeParser& typeParser) const final;
+      const TypeParser& typeParser,
+      velox::memory::MemoryPool* pool) const final;
 
   std::unique_ptr<velox::core::PartitionFunctionSpec>
   createVeloxPartitionFunctionSpec(
