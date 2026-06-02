@@ -416,6 +416,13 @@ Property Name                                           Description             
 
 ``iceberg.aggregate-push-down-enabled``                 Controls whether to push down aggregate (MIN/MAX/COUNT) to    ``true``                           Yes                 Yes
                                                         Iceberg based on data file stats.
+
+``iceberg.target-max-file-size``                        Target maximum size of written files; the actual size may     ``1GB``                            Yes                 No, write is not supported yet
+                                                        be larger. This property accepts values in the format of a
+                                                        number immediately followed by a unit (e.g., ``40kB``,
+                                                        ``256MB``, ``1GB``). Supported units are: ``B`` (bytes),
+                                                        ``kB`` (kilobytes), ``MB`` (megabytes), ``GB`` (gigabytes),
+                                                        ``TB`` (terabytes), ``PB`` (petabytes).
 ======================================================= ============================================================= ================================== =================== =============================================
 
 Table Properties
