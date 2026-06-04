@@ -81,7 +81,7 @@ public class IcebergConfig
     private int materializedViewMaxChangedPartitions = 100;
     private int materializedViewDefaultMaxSnapshotsPerRefresh;
     private boolean aggregatePushDownEnabled = true;
-    private DataSize targetMaxFileSize = succinctDataSize(1, DataSize.Unit.GIGABYTE);
+    private DataSize targetMaxFileSize = succinctDataSize(Long.MAX_VALUE, DataSize.Unit.BYTE);;
 
     @NotNull
     public FileFormat getFileFormat()

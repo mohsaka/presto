@@ -22,7 +22,7 @@ import java.util.Map;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static com.facebook.airlift.configuration.testing.ConfigAssertions.recordDefaults;
-import static com.facebook.airlift.units.DataSize.Unit.GIGABYTE;
+import static com.facebook.airlift.units.DataSize.Unit.BYTE;
 import static com.facebook.airlift.units.DataSize.Unit.MEGABYTE;
 import static com.facebook.airlift.units.DataSize.succinctDataSize;
 import static com.facebook.presto.hive.HiveCompressionCodec.NONE;
@@ -80,7 +80,7 @@ public class TestIcebergConfig
                 .setMaterializedViewMaxChangedPartitions(100)
                 .setMaterializedViewDefaultMaxSnapshotsPerRefresh(0)
                 .setAggregatePushDownEnabled(true)
-                .setTargetMaxFileSize(succinctDataSize(1, GIGABYTE)));
+                .setTargetMaxFileSize(succinctDataSize(Long.MAX_VALUE, BYTE)));
     }
 
     @Test
