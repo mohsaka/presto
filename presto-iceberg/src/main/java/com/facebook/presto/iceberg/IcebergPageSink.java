@@ -229,7 +229,9 @@ public class IcebergPageSink
     public CompletableFuture<Collection<Slice>> finish()
     {
         for (WriteContext context : writers) {
-            closeWriter(context);
+            if (context != null) {
+                closeWriter(context);
+            }
         }
 
         writtenBytes = closedWriters.stream()
@@ -336,6 +338,10 @@ public class IcebergPageSink
 
             writtenBytes += (writer.getWrittenBytes() - currentWritten);
             systemMemoryUsage += (writer.getSystemMemoryUsage() - currentMemory);
+            if (writer.getWrittenBytes() >= targetMaxFileSize) {
+                closeWriter(writers.get(index));
+                writers.set(index, null);
+            }
         }
     }
 
@@ -358,10 +364,7 @@ public class IcebergPageSink
             int writerIndex = writerIndexes[position];
             WriteContext writer = writers.get(writerIndex);
             if (writer != null) {
-                if (writer.getWrittenBytes() <= targetMaxFileSize) {
-                    continue;
-                }
-                closeWriter(writer);
+                continue;
             }
 
             Optional<PartitionData> partitionData = getPartitionData(pagePartitioner.getColumns(), transformedPage, position);
@@ -397,7 +400,6 @@ public class IcebergPageSink
             }
         }
         verify(writers.size() == pagePartitioner.getMaxIndex() + 1);
-        verify(!writers.contains(null));
         return writerIndexes;
     }
 

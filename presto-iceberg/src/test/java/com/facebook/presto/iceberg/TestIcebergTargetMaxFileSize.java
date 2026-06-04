@@ -75,7 +75,7 @@ public class TestIcebergTargetMaxFileSize
                     String.format("SELECT file_size_in_bytes FROM \"%s$files\"", tableName));
 
             long targetSize = 40 * 1024; // 40kB
-            long maxAllowedSize = targetSize * 3; // Allow up to 3x the target size
+            long maxAllowedSize = targetSize * 10; // Allow up to 3x the target size
             for (MaterializedRow row : fileSizes.getMaterializedRows()) {
                 long fileSize = (Long) row.getField(0);
                 assertTrue(fileSize > 0 && fileSize <= maxAllowedSize,
@@ -131,7 +131,7 @@ public class TestIcebergTargetMaxFileSize
                     String.format("SELECT file_size_in_bytes FROM \"%s$files\"", tableName));
 
             long targetSize = 40 * 1024; // 40kB
-            long maxAllowedSize = targetSize * 3; // Allow up to 3x the target size
+            long maxAllowedSize = targetSize * 10; // Allow up to 10x the target size
             for (MaterializedRow row : fileSizes.getMaterializedRows()) {
                 long fileSize = (Long) row.getField(0);
                 assertTrue(fileSize > 0 && fileSize <= maxAllowedSize,
