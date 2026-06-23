@@ -19,7 +19,9 @@ import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.google.common.collect.ImmutableMap;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
@@ -34,6 +36,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -208,6 +211,88 @@ public class TestRewriteTablePathProcedure
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to list metadata directory: " + metadataDir, e);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathManifestListRewritten()
+    {
+        String tableName = "rewrite_table_path_manifest_list";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_ml_migrated";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            // Capture the manifest list path before calling the procedure.
+            String manifestListLocation = table.currentSnapshot().manifestListLocation();
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
+
+            // The target manifest list Avro file must physically exist at the rewritten path.
+            String targetManifestListPath = manifestListLocation.replace(sourcePrefix, targetPrefix);
+            assertTrue(new File(targetManifestListPath.replace("file:", "")).exists(),
+                    "Manifest list file should exist at " + targetManifestListPath);
+
+            // The new metadata JSON must point to the rewritten manifest list path.
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            newMetadata.snapshots().forEach(snapshot -> {
+                if (snapshot.manifestListLocation() != null) {
+                    assertTrue(snapshot.manifestListLocation().startsWith(targetPrefix),
+                            format("Snapshot manifest list '%s' should start with '%s'",
+                                    snapshot.manifestListLocation(), targetPrefix));
+                }
+            });
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathManifestFileRewritten()
+    {
+        String tableName = "rewrite_table_path_manifest_file";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_mf_migrated";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            // Capture the manifest file paths before calling the procedure.
+            List<String> manifestPaths = table.currentSnapshot()
+                    .allManifests(((BaseTable) table).operations().io())
+                    .stream()
+                    .map(ManifestFile::path)
+                    .collect(java.util.stream.Collectors.toList());
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
+
+            // Each manifest Avro file must physically exist at the target path.
+            for (String manifestPath : manifestPaths) {
+                String targetManifestPath = manifestPath.replace(sourcePrefix, targetPrefix);
+                assertTrue(new File(targetManifestPath.replace("file:", "")).exists(),
+                        "Manifest file should exist at " + targetManifestPath);
+            }
+
+            // The new metadata must also be readable.
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            assertEquals(newMetadata.location(), expectedNewLocation);
+        }
+        finally {
+            dropTable(tableName);
         }
     }
 

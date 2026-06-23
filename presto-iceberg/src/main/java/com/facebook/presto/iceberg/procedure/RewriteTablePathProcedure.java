@@ -27,18 +27,34 @@ import com.facebook.presto.spi.procedure.Procedure;
 import com.facebook.presto.spi.procedure.Procedure.Argument;
 import com.google.common.collect.ImmutableList;
 import jakarta.inject.Inject;
+import org.apache.avro.Schema;
+import org.apache.avro.file.DataFileReader;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.file.SeekableByteArrayInput;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SeekableInputStream;
 
 import javax.inject.Provider;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.lang.invoke.MethodHandle;
+import java.util.HashSet;
+import java.util.Set;
 
 import static com.facebook.presto.common.block.MethodHandleUtil.methodHandle;
 import static com.facebook.presto.common.type.StandardTypes.VARCHAR;
+import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_FILESYSTEM_ERROR;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
 import static com.facebook.presto.iceberg.IcebergUtil.getIcebergTable;
 import static java.lang.String.format;
@@ -46,15 +62,21 @@ import static java.util.Objects.requireNonNull;
 import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
 
 /**
- * Coordinator-only procedure that writes a new Iceberg table metadata JSON at the target location,
- * substituting every occurrence of {@code source_prefix} with {@code target_prefix} in the
- * serialized metadata. This rewrites the table location, snapshot manifest-list pointers, and
- * any explicit location properties in one pass.
+ * Coordinator-only procedure that rewrites all Iceberg metadata files (table metadata JSON,
+ * manifest list Avro files, and manifest Avro files) to a new location by substituting
+ * {@code source_prefix} with {@code target_prefix} in every path string.
  *
- * <p>Only the metadata JSON file is written. Manifest list files, manifest files, and data files
- * are not touched. The original source metadata is left completely untouched and the catalog is
- * NOT updated. The caller is expected to copy the remaining files and then call
- * {@code system.register_table} pointing at the new metadata file.
+ * <p>Data and delete files are NOT written. The original source files are left completely
+ * untouched and the catalog is NOT updated. The caller should copy the data/delete files and
+ * then call {@code system.register_table} pointing at the new metadata file.
+ *
+ * <p>Rewrite scope per file type:
+ * <ul>
+ *   <li>Metadata JSON: full serialized JSON string replacement covers all path fields.</li>
+ *   <li>Manifest list Avro: {@code manifest_path} field (top-level) in each record.</li>
+ *   <li>Manifest Avro: {@code data_file.file_path} field (nested under {@code data_file})
+ *       in each record.</li>
+ * </ul>
  */
 public class RewriteTablePathProcedure
         implements Provider<Procedure>
@@ -116,22 +138,118 @@ public class RewriteTablePathProcedure
 
             TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) icebergTable).operations().current();
 
-            // Serialize the current metadata to JSON, replace all path occurrences, then
-            // deserialize back and write to the target location. This rewrites the table
-            // location, snapshot manifest-list pointers, and any explicit location properties
-            // in a single pass without manipulating the object model.
-            String sourceJson = TableMetadataParser.toJson(sourceMetadata);
-            String targetJson = sourceJson.replace(normalizedSource, normalizedTarget);
-
-            String newMetadataLocation = sourceMetadata.metadataFileLocation()
-                    .replace(normalizedSource, normalizedTarget);
-
             HdfsContext hdfsContext = new HdfsContext(session, schema, tableName, currentLocation, false);
             FileIO fileIO = new HdfsFileIO(manifestFileCache, hdfsEnvironment, hdfsContext);
-            OutputFile outputFile = fileIO.newOutputFile(newMetadataLocation);
 
+            // Step 1: Rewrite each unique manifest Avro file — substitute file_path inside
+            // the nested data_file struct. Manifests are shared across snapshots so we
+            // deduplicate by path.
+            Set<String> rewrittenManifests = new HashSet<>();
+            for (Snapshot snapshot : sourceMetadata.snapshots()) {
+                for (ManifestFile manifest : snapshot.allManifests(fileIO)) {
+                    if (rewrittenManifests.add(manifest.path())) {
+                        rewriteAvroFile(manifest.path(), "data_file", "file_path", fileIO, normalizedSource, normalizedTarget);
+                    }
+                }
+            }
+
+            // Step 2: Rewrite each unique manifest list Avro file — substitute manifest_path
+            // (top-level field in each record).
+            Set<String> rewrittenManifestLists = new HashSet<>();
+            for (Snapshot snapshot : sourceMetadata.snapshots()) {
+                String manifestListLocation = snapshot.manifestListLocation();
+                if (manifestListLocation != null && rewrittenManifestLists.add(manifestListLocation)) {
+                    rewriteAvroFile(manifestListLocation, null, "manifest_path", fileIO, normalizedSource, normalizedTarget);
+                }
+            }
+
+            // Step 3: Rewrite the metadata JSON — full string replacement covers the table
+            // location, snapshot manifest-list pointers, and any explicit location properties.
+            String sourceJson = TableMetadataParser.toJson(sourceMetadata);
+            String targetJson = sourceJson.replace(normalizedSource, normalizedTarget);
+            String newMetadataLocation = sourceMetadata.metadataFileLocation()
+                    .replace(normalizedSource, normalizedTarget);
+            OutputFile outputFile = fileIO.newOutputFile(newMetadataLocation);
             TableMetadata newMetadata = TableMetadataParser.fromJson(newMetadataLocation, targetJson);
             TableMetadataParser.write(newMetadata, outputFile);
+        }
+    }
+
+    /**
+     * Reads the Avro container file at {@code sourcePath}, rewrites the string field identified
+     * by {@code pathField} (optionally nested inside a record field named {@code nestedRecord}),
+     * and writes the result to the corresponding target path.
+     *
+     * @param nestedRecord if non-null, the path field is inside this nested record (e.g.
+     *                     {@code "data_file"} for manifest files); if null the field is top-level
+     *                     (e.g. manifest list files where {@code manifest_path} is top-level)
+     */
+    private static void rewriteAvroFile(
+            String sourcePath,
+            String nestedRecord,
+            String pathField,
+            FileIO fileIO,
+            String sourcePrefix,
+            String targetPrefix)
+    {
+        String targetPath = sourcePath.replace(sourcePrefix, targetPrefix);
+        byte[] sourceBytes = readAllBytes(fileIO.newInputFile(sourcePath));
+
+        try (DataFileReader<GenericRecord> reader = new DataFileReader<>(
+                new SeekableByteArrayInput(sourceBytes),
+                new GenericDatumReader<>())) {
+            Schema schema = reader.getSchema();
+            OutputFile outputFile = fileIO.newOutputFile(targetPath);
+            try (DataFileWriter<GenericRecord> writer = new DataFileWriter<>(new GenericDatumWriter<>(schema))) {
+                String codec = reader.getMetaString("avro.codec");
+                writer.setCodec(org.apache.avro.file.CodecFactory.fromString(codec != null ? codec : "null"));
+                writer.create(schema, outputFile.createOrOverwrite());
+                for (GenericRecord record : reader) {
+                    rewritePathField(record, nestedRecord, pathField, sourcePrefix, targetPrefix);
+                    writer.append(record);
+                }
+            }
+        }
+        catch (IOException e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to rewrite Avro file '%s' -> '%s'", sourcePath, targetPath), e);
+        }
+    }
+
+    /**
+     * Rewrites the path string in {@code record.nestedRecord.pathField} (or
+     * {@code record.pathField} when {@code nestedRecord} is null).
+     */
+    private static void rewritePathField(GenericRecord record, String nestedRecord, String pathField, String sourcePrefix, String targetPrefix)
+    {
+        GenericRecord target = nestedRecord != null ? (GenericRecord) record.get(nestedRecord) : record;
+        if (target == null) {
+            return;
+        }
+        Schema.Field field = target.getSchema().getField(pathField);
+        if (field == null) {
+            return;
+        }
+        Object value = target.get(field.pos());
+        if (value != null) {
+            target.put(field.pos(), new org.apache.avro.util.Utf8(value.toString().replace(sourcePrefix, targetPrefix)));
+        }
+    }
+
+    private static byte[] readAllBytes(InputFile inputFile)
+    {
+        try (SeekableInputStream stream = inputFile.newStream()) {
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int read;
+            while ((read = stream.read(chunk)) != -1) {
+                buffer.write(chunk, 0, read);
+            }
+            return buffer.toByteArray();
+        }
+        catch (IOException e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to read file '%s'", inputFile.location()), e);
         }
     }
 }
