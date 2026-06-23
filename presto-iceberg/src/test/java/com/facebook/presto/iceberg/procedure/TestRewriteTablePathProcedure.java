@@ -215,6 +215,80 @@ public class TestRewriteTablePathProcedure
     }
 
     @Test
+    public void testRewriteTablePathEndToEnd()
+    {
+        // Full end-to-end: create table, rewrite paths, copy data files, register, query.
+        String sourceName = "rewrite_e2e_source";
+        String targetName = "rewrite_e2e_target";
+        createTable(sourceName);
+        try {
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_e2e_target";
+            String targetLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            // Step 1: Rewrite all metadata files to the target location.
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix));
+
+            // Step 2: Copy data files from source to target (same directory structure).
+            copyDirectory(
+                    java.nio.file.Paths.get(originalLocation.replace("file:", ""), "data"),
+                    java.nio.file.Paths.get(targetLocation.replace("file:", ""), "data"));
+
+            // Step 3: Register the rewritten table under a new name using the new metadata.
+            String targetMetadataDir = targetLocation + "/metadata";
+            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
+                    TEST_SCHEMA, targetName, targetMetadataDir));
+
+            // Step 4: Verify the registered table returns the same data.
+            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
+                    "VALUES (1, 'a'), (2, 'b')");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
+        }
+    }
+
+    /**
+     * Recursively copies all files from {@code source} to {@code target}, creating
+     * intermediate directories as needed. Skips if the source directory does not exist
+     * (table may have no data files if never inserted into).
+     */
+    private static void copyDirectory(java.nio.file.Path source, java.nio.file.Path target)
+    {
+        if (!source.toFile().exists()) {
+            return;
+        }
+        try {
+            Files.walk(source).forEach(sourcePath -> {
+                java.nio.file.Path targetPath = target.resolve(source.relativize(sourcePath));
+                try {
+                    if (java.nio.file.Files.isDirectory(sourcePath)) {
+                        java.nio.file.Files.createDirectories(targetPath);
+                    }
+                    else {
+                        java.nio.file.Files.createDirectories(targetPath.getParent());
+                        java.nio.file.Files.copy(sourcePath, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                catch (IOException e) {
+                    throw new RuntimeException("Failed to copy " + sourcePath + " -> " + targetPath, e);
+                }
+            });
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to walk source directory: " + source, e);
+        }
+    }
+
+    @Test
     public void testRewriteTablePathManifestListRewritten()
     {
         String tableName = "rewrite_table_path_manifest_list";
