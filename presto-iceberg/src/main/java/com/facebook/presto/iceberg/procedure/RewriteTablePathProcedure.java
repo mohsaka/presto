@@ -82,8 +82,10 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
  * directly to {@code target_prefix} (the previous default behaviour).
  *
  * <p>{@code start_version} and {@code end_version} optionally bound the set of metadata JSON
- * files that are rewritten. Each value may be a bare filename (e.g. {@code v2.metadata.json})
- * or a full path. The ordered list is: all {@code previousFiles()} entries (oldest first)
+ * files that are rewritten. Each value may be a bare filename or a full path. Iceberg uses two
+ * filename schemes depending on the catalog: sequential ({@code v2.metadata.json}) and
+ * UUID-based ({@code 00002-&lt;uuid&gt;.metadata.json}). Both are matched by filename suffix.
+ * The ordered list is: all {@code previousFiles()} entries (oldest first)
  * followed by the current metadata file. Only metadata JSON files whose position falls within
  * {@code [start_version, end_version]} (inclusive) are rewritten; manifest list and manifest
  * Avro files for all snapshots reachable from the in-range metadata are always rewritten in
@@ -376,7 +378,10 @@ public class RewriteTablePathProcedure
 
     /**
      * Finds the position of {@code version} in {@code metadataFiles} (ordered oldest → newest).
-     * {@code version} may be a bare filename (e.g. {@code v2.metadata.json}) or a full path.
+     * {@code version} may be a bare filename or a full path. Iceberg uses two filename schemes:
+     * sequential (e.g. {@code v2.metadata.json}) and UUID-based (e.g.
+     * {@code 00002-575ea024-3812-4e69-ac1e-9c8f284442e2.metadata.json}). Both are matched by
+     * testing whether the stored path equals {@code version} or ends with {@code "/" + version}.
      * Throws {@link PrestoException} if no match is found.
      */
     private static int findMetadataVersionIndex(List<String> metadataFiles, String version)

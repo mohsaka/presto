@@ -1637,6 +1637,133 @@ Examples:
 
     CALL iceberg.system.rewrite_manifests('schema_name', 'table_name', 0);
 
+Rewrite Table Path
+^^^^^^^^^^^^^^^^^^
+
+This procedure rewrites all Iceberg metadata files (table metadata JSON, manifest list Avro,
+and manifest Avro) to a new storage location by substituting ``source_prefix`` with
+``target_prefix`` in every embedded path string.
+
+The procedure is a **metadata-only, coordinator-only** operation. Data and delete files are
+**not** written or moved. The source table and its catalog entry are left completely untouched.
+After the procedure completes, the caller copies files using the generated ``file-list`` CSV
+and registers the table at the new location using ``system.register_table``.
+
+The following arguments are available:
+
+====================== ========== =============== ============================================================
+Argument Name          Required   Type            Description
+====================== ========== =============== ============================================================
+``schema``             Yes        string          Schema of the table to migrate
+
+``table_name``         Yes        string          Name of the table to migrate
+
+``source_prefix``      Yes        string          The existing path prefix to replace
+
+``target_prefix``      Yes        string          The replacement path prefix
+
+``start_version``      No         string          First metadata file to rewrite (filename or full path).
+                                                  Iceberg supports two filename formats:
+                                                  sequential (``v2.metadata.json``) and UUID-based
+                                                  (``00002-<uuid>.metadata.json``). Both are accepted.
+                                                  Defaults to the oldest entry in the metadata log.
+
+``end_version``        No         string          Last metadata file to rewrite (filename or full path).
+                                                  Uses the same format rules as ``start_version``.
+                                                  Defaults to the current (newest) metadata version.
+
+``staging_location``   No         string          Directory where rewritten metadata files are physically
+                                                  written. Content inside each file references
+                                                  ``target_prefix``, so files are ready to use once
+                                                  moved from staging to the final target. Defaults to a
+                                                  UUID-named subdirectory under the source table's
+                                                  metadata directory.
+
+``create_file_list``   No         boolean         When ``true`` (default), writes a two-column CSV to
+                                                  ``<staging_location>/file-list``. Each row is
+                                                  ``source_or_staging_path,final_target_path`` and covers
+                                                  all data files and all rewritten metadata files.
+                                                  Set to ``false`` to skip writing the file list.
+====================== ========== =============== ============================================================
+
+.. note::
+
+    ``rewrite_table_path`` does **not** update the catalog. After copying files, register the table
+    at the new location using :doc:`register_table </connector/iceberg>`.
+
+.. note::
+
+    Only metadata versions within ``[start_version, end_version]`` are rewritten. Manifest list
+    and manifest Avro files are rewritten for all snapshots reachable from the in-range metadata,
+    because those files are shared across versions and must be internally consistent.
+
+.. note::
+
+    If both ``start_version`` and ``end_version`` are omitted, all metadata versions are rewritten
+    (equivalent to the full-table migration case). Supplying only ``start_version`` rewrites from
+    that version to the current; supplying only ``end_version`` rewrites from the oldest to that
+    version.
+
+Typical workflow::
+
+    -- Step 1: rewrite metadata from source prefix to target prefix
+    CALL catalog_name.system.rewrite_table_path(
+        schema           => 'db',
+        table_name       => 'my_table',
+        source_prefix    => 's3a://bucketOne/prefix/db.db/my_table',
+        target_prefix    => 's3a://bucketTwo/prefix/db.db/my_table',
+        staging_location => 's3a://bucketStaging/my_table'
+    );
+
+    -- Step 2: copy every row from <staging_location>/file-list
+    --         source_or_staging_path -> final_target_path
+
+    -- Step 3: register the table at the new location
+    CALL catalog_name.system.register_table(
+        schema            => 'db',
+        table_name        => 'my_table_new',
+        metadata_location => 's3a://bucketTwo/prefix/db.db/my_table/metadata'
+    );
+
+Examples:
+
+* Rewrite the full table (all metadata versions): ::
+
+    CALL iceberg.system.rewrite_table_path('schema_name', 'table_name',
+        's3a://old-bucket/warehouse', 's3a://new-bucket/warehouse');
+
+* Rewrite with an explicit staging directory and version window: ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix/db.db/my_table',
+        target_prefix    => 's3a://bucketTwo/prefix/db.db/my_table',
+        start_version    => 'v2.metadata.json',
+        end_version      => 'v20.metadata.json',
+        staging_location => 's3a://bucketStaging/my_table'
+    );
+
+* Rewrite without generating a file list: ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        create_file_list => false
+    );
+
+* Rewrite from a specific version to the current (skip old archived versions): ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema        => 'schema_name',
+        table_name    => 'table_name',
+        source_prefix => 's3a://bucketOne/prefix',
+        target_prefix => 's3a://bucketTwo/prefix',
+        start_version => '00010-575ea024-3812-4e69-ac1e-9c8f284442e2.metadata.json'
+    );
+
 .. rubric:: Presto C++ Support
 
 All above procedures are supported in Presto C++.
