@@ -35,7 +35,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +59,472 @@ public class TestRewriteTablePathProcedure
     {
         return IcebergQueryRunner.builder().setCatalogType(HADOOP).build().getQueryRunner();
     }
+
+    // -------------------------------------------------------------------------
+    // Argument validation
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testInvalidRewriteTablePathCalls()
+    {
+        assertQueryFails("CALL system.rewrite_table_path('schema', 'table', 'src')",
+                "line 1:1: Required procedure argument 'target_prefix' is missing");
+        assertQueryFails("CALL custom.rewrite_table_path('tpch', 'test', 'src', 'dst')",
+                "Procedure not registered: custom.rewrite_table_path");
+        assertQueryFails("CALL system.rewrite_table_path(table_name => 'test', source_prefix => 'src', target_prefix => 'dst')",
+                "line 1:1: Required procedure argument 'schema' is missing");
+    }
+
+    @Test
+    public void testRewriteTablePathOnNonExistingTableFails()
+    {
+        assertQueryFails("CALL system.rewrite_table_path('tpch', 'non_existing_table', 'src', 'dst')",
+                "Table does not exist: tpch.non_existing_table");
+    }
+
+    @Test
+    public void testRewriteTablePathWithNonMatchingPrefixFails()
+    {
+        String tableName = "rewrite_table_path_bad_prefix";
+        createTable(tableName);
+        try {
+            assertQueryFails(
+                    format("CALL system.rewrite_table_path('%s', '%s', 'file://wrong/warehouse', 'file://new/warehouse')",
+                            TEST_SCHEMA, tableName),
+                    "Table location .* does not start with source prefix 'file://wrong/warehouse'");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Call syntax — positional and named args both reach the same code path
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testRewriteTablePathPositionalArgs()
+    {
+        String tableName = "rewrite_table_path_positional";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_migrated";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
+
+            // Catalog entry must be unchanged — the procedure does not update it.
+            table.refresh();
+            assertEquals(table.location(), originalLocation,
+                    "Original table location should not be modified");
+
+            // Metadata at the target location must reference the new location.
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            assertEquals(newMetadata.location(), expectedNewLocation,
+                    format("New metadata location should be '%s' but was '%s'", expectedNewLocation, newMetadata.location()));
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathNamedArgs()
+    {
+        String tableName = "rewrite_table_path_named";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_renamed";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            assertUpdate(format("CALL system.rewrite_table_path(schema => '%s', table_name => '%s', source_prefix => '%s', target_prefix => '%s', staging_location => '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
+
+            // Catalog entry unchanged.
+            table.refresh();
+            assertEquals(table.location(), originalLocation,
+                    "Original table location should not be modified");
+
+            // Metadata at the target location must reference the new location.
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            assertTrue(newMetadata.location().startsWith(targetPrefix),
+                    format("New metadata location should start with '%s' but was '%s'", targetPrefix, newMetadata.location()));
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Rewrite correctness — verifies each file type is physically rewritten
+    // with the correct internal path strings
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testRewriteTablePathSnapshotPointersRewritten()
+    {
+        // Two snapshots → two manifest-list pointers. Both must reference target_prefix.
+        String tableName = "rewrite_table_path_snapshots";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_snap_migrated";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
+
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            newMetadata.snapshots().forEach(snapshot -> {
+                if (snapshot.manifestListLocation() != null) {
+                    assertTrue(snapshot.manifestListLocation().startsWith(targetPrefix),
+                            format("Snapshot %s manifest list '%s' should start with '%s'",
+                                    snapshot.snapshotId(), snapshot.manifestListLocation(), targetPrefix));
+                }
+            });
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathManifestListRewritten()
+    {
+        // The manifest list Avro must be physically written at the target path and its
+        // internal manifest_path fields must reference target_prefix.
+        String tableName = "rewrite_table_path_manifest_list";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_ml_migrated";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+            String manifestListLocation = table.currentSnapshot().manifestListLocation();
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
+
+            // File must physically exist at the target path.
+            String targetManifestListPath = manifestListLocation.replace(sourcePrefix, targetPrefix);
+            assertTrue(new File(targetManifestListPath.replace("file:", "")).exists(),
+                    "Manifest list file should exist at " + targetManifestListPath);
+
+            // Metadata must point to the rewritten manifest list path.
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            newMetadata.snapshots().forEach(snapshot -> {
+                if (snapshot.manifestListLocation() != null) {
+                    assertTrue(snapshot.manifestListLocation().startsWith(targetPrefix),
+                            format("Snapshot manifest list '%s' should start with '%s'",
+                                    snapshot.manifestListLocation(), targetPrefix));
+                }
+            });
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathManifestFileRewritten()
+    {
+        // Each manifest Avro must be physically written at the target path with
+        // data_file.file_path fields referencing target_prefix.
+        String tableName = "rewrite_table_path_manifest_file";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_mf_migrated";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+            List<String> manifestPaths = table.currentSnapshot()
+                    .allManifests(((BaseTable) table).operations().io())
+                    .stream()
+                    .map(ManifestFile::path)
+                    .collect(Collectors.toList());
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
+
+            // Each manifest Avro must physically exist at the target path.
+            for (String manifestPath : manifestPaths) {
+                String targetManifestPath = manifestPath.replace(sourcePrefix, targetPrefix);
+                assertTrue(new File(targetManifestPath.replace("file:", "")).exists(),
+                        "Manifest file should exist at " + targetManifestPath);
+            }
+            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
+            assertEquals(newMetadata.location(), expectedNewLocation);
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Staging location — files go to staging, content references target_prefix,
+    // file-list CSV maps staging → target for metadata and source → target for data
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testRewriteTablePathStagingLocationWritesFilesToStaging()
+            throws IOException
+    {
+        // Metadata files must be physically written under staging_location, not target_prefix.
+        // The content inside each file must still reference target_prefix.
+        String tableName = "rewrite_table_path_staging";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_stage_target";
+            String stagingLocation = sourcePrefix + "_staging";
+            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
+
+            // Catalog must be unchanged.
+            table.refresh();
+            assertEquals(table.location(), originalLocation,
+                    "Original table location should not be modified");
+
+            // Metadata file physically written to staging; content references target_prefix.
+            TableMetadata stagingMetadata = readLatestTargetMetadata(stagingLocation + originalLocation.substring(sourcePrefix.length()));
+            assertEquals(stagingMetadata.location(), expectedNewLocation,
+                    "Metadata content should reference target_prefix, not staging_location");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathFileListContents()
+            throws IOException
+    {
+        // file-list is always written to <staging_location>/file-list.
+        // Source column: original path for data files, staging path for metadata files.
+        // Target column: final target path for all files.
+        String tableName = "rewrite_table_path_file_list";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_fl_migrated";
+            String stagingLocation = sourcePrefix + "_fl_staging";
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
+
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localPath));
+
+            assertTrue(lines.size() > 0, "file-list should not be empty");
+            for (String line : lines) {
+                String[] parts = line.split(",", 2);
+                assertEquals(parts.length, 2, "Each line should have exactly two columns: " + line);
+                assertTrue(parts[1].startsWith(targetPrefix),
+                        format("Target column '%s' should start with '%s'", parts[1], targetPrefix));
+            }
+
+            List<String> sourceCol = lines.stream().map(l -> l.split(",", 2)[0]).collect(Collectors.toList());
+            List<String> targetCol = lines.stream().map(l -> l.split(",", 2)[1]).collect(Collectors.toList());
+
+            // Data files: source column is the original location, target is target_prefix.
+            assertTrue(sourceCol.stream().anyMatch(p -> p.endsWith(".parquet")),
+                    "file-list source should contain at least one data file (.parquet)");
+            assertTrue(targetCol.stream().anyMatch(p -> p.endsWith(".parquet")),
+                    "file-list target should contain at least one data file (.parquet)");
+
+            // Metadata files: source column is the staging path.
+            assertTrue(sourceCol.stream().filter(p -> p.endsWith(".avro")).allMatch(p -> p.startsWith(stagingLocation)),
+                    "Avro source paths should be under staging_location");
+            assertTrue(targetCol.stream().anyMatch(p -> p.contains("/metadata/snap-") && p.endsWith(".avro")),
+                    "file-list should contain at least one manifest list (.avro)");
+            assertTrue(targetCol.stream().anyMatch(p -> p.contains("/metadata/") && p.endsWith(".avro") && !p.contains("/metadata/snap-")),
+                    "file-list should contain at least one manifest file (.avro)");
+            assertTrue(targetCol.stream().anyMatch(p -> p.endsWith(".metadata.json")),
+                    "file-list should contain the metadata JSON file");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end — full migration using the file-list as the sole copy manifest
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testRewriteTablePathEndToEnd()
+            throws IOException
+    {
+        // Default UUID staging: procedure picks the staging dir automatically.
+        // The file-list CSV is the complete copy manifest — copy every row
+        // (data files and metadata files alike) then register and query.
+        String sourceName = "rewrite_e2e_source";
+        String targetName = "rewrite_e2e_target";
+        createTable(sourceName);
+        try {
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_e2e_target";
+
+            // Step 1: rewrite — no staging_location, UUID staging dir chosen automatically.
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix));
+
+            // Step 2: find the UUID staging dir under <originalLocation>/metadata
+            // and read the file-list at <staging>/file-list.
+            String sourceMetadataDir = originalLocation.replace("file:", "") + "/metadata";
+            java.nio.file.Path stagingDir = Files.list(java.nio.file.Paths.get(sourceMetadataDir))
+                    .filter(p -> p.getFileName().toString().startsWith(RewriteTablePathProcedure.STAGING_DIR_PREFIX))
+                    .filter(java.nio.file.Files::isDirectory)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No staging dir found under " + sourceMetadataDir));
+
+            java.nio.file.Path fileListPath = stagingDir.resolve(RewriteTablePathProcedure.FILE_LIST_NAME);
+            assertTrue(java.nio.file.Files.exists(fileListPath), "file-list should exist at " + fileListPath);
+            List<String> lines = Files.readAllLines(fileListPath);
+            assertTrue(lines.size() > 0, "file-list should not be empty");
+
+            // Step 3: copy every row — data files (original → target) and
+            // metadata files (staging → target). No other path logic needed.
+            for (String line : lines) {
+                String[] parts = line.split(",", 2);
+                java.nio.file.Path from = java.nio.file.Paths.get(parts[0].replace("file:", ""));
+                java.nio.file.Path to = java.nio.file.Paths.get(parts[1].replace("file:", ""));
+                java.nio.file.Files.createDirectories(to.getParent());
+                java.nio.file.Files.copy(from, to, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            // Step 4: derive the metadata dir from the .metadata.json destination row.
+            String metadataFileDest = lines.stream()
+                    .map(l -> l.split(",", 2)[1])
+                    .filter(p -> p.endsWith(".metadata.json"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No .metadata.json entry in file-list"));
+            String targetMetadataDir = metadataFileDest.substring(0, metadataFileDest.lastIndexOf('/'));
+
+            // Step 5: register and query.
+            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
+                    TEST_SCHEMA, targetName, targetMetadataDir));
+            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
+                    "VALUES (1, 'a'), (2, 'b')");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathEndToEndWithStagingLocation()
+            throws IOException
+    {
+        // Explicit staging_location: caller knows the staging path up front so
+        // the file-list can be found directly without scanning for a UUID dir.
+        // Same copy-everything-from-CSV workflow as the default staging test.
+        String sourceName = "rewrite_e2e_staged_source";
+        String targetName = "rewrite_e2e_staged_target";
+        createTable(sourceName);
+        try {
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_e2e_staged_target";
+            String stagingLocation = sourcePrefix + "_e2e_staging";
+
+            // Step 1: rewrite with an explicit staging_location.
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, stagingLocation));
+
+            // Step 2: file-list is at the known path <staging_location>/file-list.
+            java.nio.file.Path fileListPath = java.nio.file.Paths.get(
+                    (stagingLocation + "/file-list").replace("file:", ""));
+            assertTrue(java.nio.file.Files.exists(fileListPath), "file-list should exist at " + fileListPath);
+            List<String> lines = Files.readAllLines(fileListPath);
+            assertTrue(lines.size() > 0, "file-list should not be empty");
+
+            // Step 3: copy every row — data files (original → target) and
+            // metadata files (staging → target). No other path logic needed.
+            for (String line : lines) {
+                String[] parts = line.split(",", 2);
+                java.nio.file.Path from = java.nio.file.Paths.get(parts[0].replace("file:", ""));
+                java.nio.file.Path to = java.nio.file.Paths.get(parts[1].replace("file:", ""));
+                java.nio.file.Files.createDirectories(to.getParent());
+                java.nio.file.Files.copy(from, to, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            // Step 4: derive the metadata dir from the .metadata.json destination row.
+            String metadataFileDest = lines.stream()
+                    .map(l -> l.split(",", 2)[1])
+                    .filter(p -> p.endsWith(".metadata.json"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No .metadata.json entry found in file-list"));
+            String targetMetadataDir = metadataFileDest.substring(0, metadataFileDest.lastIndexOf('/'));
+
+            // Step 5: register and query.
+            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
+                    TEST_SCHEMA, targetName, targetMetadataDir));
+            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
+                    "VALUES (1, 'a'), (2, 'b')");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     private void createTable(String tableName)
     {
@@ -90,119 +555,14 @@ public class TestRewriteTablePathProcedure
         return getIcebergDataDirectoryPath(dataDirectory, HADOOP.name(), new IcebergConfig().getFileFormat(), false).toFile();
     }
 
-    @Test
-    public void testRewriteTablePathPositionalArgs()
-    {
-        String tableName = "rewrite_table_path_positional";
-        createTable(tableName);
-        try {
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
-
-            Table table = loadTable(tableName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_migrated";
-            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
-
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
-                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
-
-            // The catalog entry must be unchanged — the procedure does not update it.
-            table.refresh();
-            assertEquals(table.location(), originalLocation,
-                    "Original table location should not be modified");
-
-            // Find the latest metadata file written to the target directory and verify its location.
-            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
-            assertEquals(newMetadata.location(), expectedNewLocation,
-                    format("New metadata location should be '%s' but was '%s'", expectedNewLocation, newMetadata.location()));
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
-    @Test
-    public void testRewriteTablePathNamedArgs()
-    {
-        String tableName = "rewrite_table_path_named";
-        createTable(tableName);
-        try {
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
-
-            Table table = loadTable(tableName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_renamed";
-            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
-
-            assertUpdate(format("CALL system.rewrite_table_path(schema => '%s', table_name => '%s', source_prefix => '%s', target_prefix => '%s')",
-                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
-
-            // Catalog entry unchanged.
-            table.refresh();
-            assertEquals(table.location(), originalLocation,
-                    "Original table location should not be modified");
-
-            // Find the latest metadata file written to the target directory and verify its location.
-            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
-            assertTrue(newMetadata.location().startsWith(targetPrefix),
-                    format("New metadata location should start with '%s' but was '%s'", targetPrefix, newMetadata.location()));
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
-    @Test
-    public void testRewriteTablePathSnapshotPointersRewritten()
-    {
-        String tableName = "rewrite_table_path_snapshots";
-        createTable(tableName);
-        try {
-            // Two inserts produce two snapshots, each with their own manifest-list pointer.
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
-            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
-
-            Table table = loadTable(tableName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_snap_migrated";
-            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
-
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
-                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
-
-            // Verify all snapshot manifest-list pointers in the new metadata use the target prefix.
-            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
-            newMetadata.snapshots().forEach(snapshot -> {
-                if (snapshot.manifestListLocation() != null) {
-                    assertTrue(snapshot.manifestListLocation().startsWith(targetPrefix),
-                            format("Snapshot %s manifest list '%s' should start with '%s'",
-                                    snapshot.snapshotId(), snapshot.manifestListLocation(), targetPrefix));
-                }
-            });
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
     /**
-     * Resolves the latest {@code .metadata.json} file written under
-     * {@code <tableLocation>/metadata/} and parses it.
-     * This avoids hardcoding the metadata version number (v1, v2, v3, …) which
-     * advances whenever the table receives new snapshots.
+     * Finds the latest {@code .metadata.json} written under {@code <tableLocation>/metadata/}
+     * by last-modified time and parses it. Avoids hardcoding version numbers (v1, v2, v3, …).
      */
     private TableMetadata readLatestTargetMetadata(String tableLocation)
     {
-        // tableLocation is a file: URI — strip the scheme to get a local path.
         String localPath = tableLocation.startsWith("file:") ? tableLocation.substring("file:".length()) : tableLocation;
         java.nio.file.Path metadataDir = java.nio.file.Paths.get(localPath, "metadata");
-
         try {
             Optional<Path> latest = Files.list(metadataDir)
                     .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
@@ -214,250 +574,5 @@ public class TestRewriteTablePathProcedure
         catch (IOException e) {
             throw new RuntimeException("Failed to list metadata directory: " + metadataDir, e);
         }
-    }
-
-    @Test
-    public void testRewriteTablePathEndToEnd()
-    {
-        // Full end-to-end: create table, rewrite paths, copy data files, register, query.
-        String sourceName = "rewrite_e2e_source";
-        String targetName = "rewrite_e2e_target";
-        createTable(sourceName);
-        try {
-            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
-            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
-
-            Table table = loadTable(sourceName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_e2e_target";
-            String targetLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
-
-            // Step 1: Rewrite all metadata files to the target location.
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
-                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix));
-
-            // Step 2: Copy data files from source to target (same directory structure).
-            copyDirectory(
-                    java.nio.file.Paths.get(originalLocation.replace("file:", ""), "data"),
-                    java.nio.file.Paths.get(targetLocation.replace("file:", ""), "data"));
-
-            // Step 3: Register the rewritten table under a new name using the new metadata.
-            String targetMetadataDir = targetLocation + "/metadata";
-            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
-                    TEST_SCHEMA, targetName, targetMetadataDir));
-
-            // Step 4: Verify the registered table returns the same data.
-            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
-                    "VALUES (1, 'a'), (2, 'b')");
-        }
-        finally {
-            dropTable(sourceName);
-            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
-        }
-    }
-
-    /**
-     * Recursively copies all files from {@code source} to {@code target}, creating
-     * intermediate directories as needed. Skips if the source directory does not exist
-     * (table may have no data files if never inserted into).
-     */
-    private static void copyDirectory(java.nio.file.Path source, java.nio.file.Path target)
-    {
-        if (!source.toFile().exists()) {
-            return;
-        }
-        try {
-            Files.walk(source).forEach(sourcePath -> {
-                java.nio.file.Path targetPath = target.resolve(source.relativize(sourcePath));
-                try {
-                    if (java.nio.file.Files.isDirectory(sourcePath)) {
-                        java.nio.file.Files.createDirectories(targetPath);
-                    }
-                    else {
-                        java.nio.file.Files.createDirectories(targetPath.getParent());
-                        java.nio.file.Files.copy(sourcePath, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-                catch (IOException e) {
-                    throw new RuntimeException("Failed to copy " + sourcePath + " -> " + targetPath, e);
-                }
-            });
-        }
-        catch (IOException e) {
-            throw new RuntimeException("Failed to walk source directory: " + source, e);
-        }
-    }
-
-    @Test
-    public void testRewriteTablePathManifestListRewritten()
-    {
-        String tableName = "rewrite_table_path_manifest_list";
-        createTable(tableName);
-        try {
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
-
-            Table table = loadTable(tableName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_ml_migrated";
-            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
-
-            // Capture the manifest list path before calling the procedure.
-            String manifestListLocation = table.currentSnapshot().manifestListLocation();
-
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
-                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
-
-            // The target manifest list Avro file must physically exist at the rewritten path.
-            String targetManifestListPath = manifestListLocation.replace(sourcePrefix, targetPrefix);
-            assertTrue(new File(targetManifestListPath.replace("file:", "")).exists(),
-                    "Manifest list file should exist at " + targetManifestListPath);
-
-            // The new metadata JSON must point to the rewritten manifest list path.
-            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
-            newMetadata.snapshots().forEach(snapshot -> {
-                if (snapshot.manifestListLocation() != null) {
-                    assertTrue(snapshot.manifestListLocation().startsWith(targetPrefix),
-                            format("Snapshot manifest list '%s' should start with '%s'",
-                                    snapshot.manifestListLocation(), targetPrefix));
-                }
-            });
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
-    @Test
-    public void testRewriteTablePathManifestFileRewritten()
-    {
-        String tableName = "rewrite_table_path_manifest_file";
-        createTable(tableName);
-        try {
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
-
-            Table table = loadTable(tableName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_mf_migrated";
-            String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
-
-            // Capture the manifest file paths before calling the procedure.
-            List<String> manifestPaths = table.currentSnapshot()
-                    .allManifests(((BaseTable) table).operations().io())
-                    .stream()
-                    .map(ManifestFile::path)
-                    .collect(java.util.stream.Collectors.toList());
-
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s')",
-                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
-
-            // Each manifest Avro file must physically exist at the target path.
-            for (String manifestPath : manifestPaths) {
-                String targetManifestPath = manifestPath.replace(sourcePrefix, targetPrefix);
-                assertTrue(new File(targetManifestPath.replace("file:", "")).exists(),
-                        "Manifest file should exist at " + targetManifestPath);
-            }
-
-            // The new metadata must also be readable.
-            TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
-            assertEquals(newMetadata.location(), expectedNewLocation);
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
-    @Test
-    public void testRewriteTablePathWithNonMatchingPrefixFails()
-    {
-        String tableName = "rewrite_table_path_bad_prefix";
-        createTable(tableName);
-        try {
-            assertQueryFails(
-                    format("CALL system.rewrite_table_path('%s', '%s', 'file://wrong/warehouse', 'file://new/warehouse')",
-                            TEST_SCHEMA, tableName),
-                    "Table location .* does not start with source prefix 'file://wrong/warehouse'");
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
-    @Test
-    public void testInvalidRewriteTablePathCalls()
-    {
-        assertQueryFails("CALL system.rewrite_table_path('schema', 'table', 'src')",
-                "line 1:1: Required procedure argument 'target_prefix' is missing");
-        assertQueryFails("CALL custom.rewrite_table_path('tpch', 'test', 'src', 'dst')",
-                "Procedure not registered: custom.rewrite_table_path");
-        assertQueryFails("CALL system.rewrite_table_path(table_name => 'test', source_prefix => 'src', target_prefix => 'dst')",
-                "line 1:1: Required procedure argument 'schema' is missing");
-    }
-
-    @Test
-    public void testRewriteTablePathFileListGenerated()
-            throws IOException
-    {
-        String tableName = "rewrite_table_path_file_list";
-        createTable(tableName);
-        try {
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
-            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
-
-            Table table = loadTable(tableName);
-            table.refresh();
-            String originalLocation = table.location();
-            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
-            String targetPrefix = sourcePrefix + "_fl_migrated";
-
-            // Place the CSV alongside the new metadata root.
-            String fileListPath = targetPrefix + "/copy-files.csv";
-
-            assertUpdate(format(
-                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
-                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, fileListPath));
-
-            // Read the written CSV.
-            String localCsvPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
-            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localCsvPath));
-
-            // Every line must be "sourcePath,targetPath" — two non-empty columns.
-            assertTrue(lines.size() > 0, "CSV file should not be empty");
-            for (String line : lines) {
-                String[] parts = line.split(",", 2);
-                assertEquals(parts.length, 2, "Each CSV line should have exactly two columns: " + line);
-                assertTrue(parts[0].startsWith(sourcePrefix),
-                        format("Source column '%s' should start with '%s'", parts[0], sourcePrefix));
-                assertTrue(parts[1].startsWith(targetPrefix),
-                        format("Target column '%s' should start with '%s'", parts[1], targetPrefix));
-            }
-
-            // The CSV must contain the data files (.parquet), manifest Avros, manifest list
-            // Avros, and the metadata JSON.
-            List<String> sourceFiles = lines.stream().map(l -> l.split(",", 2)[0]).collect(Collectors.toList());
-            assertTrue(sourceFiles.stream().anyMatch(p -> p.endsWith(".parquet")),
-                    "CSV should contain at least one data file (.parquet)");
-            assertTrue(sourceFiles.stream().anyMatch(p -> p.contains("/metadata/snap-") && p.endsWith(".avro")),
-                    "CSV should contain at least one manifest list (.avro)");
-            assertTrue(sourceFiles.stream().anyMatch(p -> p.contains("/metadata/") && p.endsWith(".avro") && !p.contains("/metadata/snap-")),
-                    "CSV should contain at least one manifest file (.avro)");
-            assertTrue(sourceFiles.stream().anyMatch(p -> p.endsWith(".metadata.json")),
-                    "CSV should contain the metadata JSON file");
-        }
-        finally {
-            dropTable(tableName);
-        }
-    }
-
-    @Test
-    public void testRewriteTablePathOnNonExistingTableFails()
-    {
-        assertQueryFails("CALL system.rewrite_table_path('tpch', 'non_existing_table', 'src', 'dst')",
-                "Table does not exist: tpch.non_existing_table");
     }
 }

@@ -55,6 +55,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import static com.facebook.presto.common.block.MethodHandleUtil.methodHandle;
 import static com.facebook.presto.common.type.StandardTypes.VARCHAR;
@@ -74,6 +75,12 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
  * untouched and the catalog is NOT updated. The caller should copy the data/delete files and
  * then call {@code system.register_table} pointing at the new metadata file.
  *
+ * <p>When {@code staging_location} is provided, rewritten metadata files are physically written
+ * under the staging directory (preserving the relative path suffix from the source). The internal
+ * path strings embedded in each file still reference {@code target_prefix}, so the files are
+ * ready to use once moved from staging to the final target. When omitted, files are written
+ * directly to {@code target_prefix} (the previous default behaviour).
+ *
  * <p>Rewrite scope per file type:
  * <ul>
  *   <li>Metadata JSON: full serialized JSON string replacement covers all path fields.</li>
@@ -85,6 +92,13 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
 public class RewriteTablePathProcedure
         implements Provider<Procedure>
 {
+    public static final String STAGING_DIR_PREFIX = "copy-table-staging-";
+    public static final String FILE_LIST_NAME = "file-list";
+
+    private static final String MANIFEST_DATA_FILE_FIELD = "data_file";
+    private static final String MANIFEST_FILE_PATH_FIELD = "file_path";
+    private static final String MANIFEST_LIST_PATH_FIELD = "manifest_path";
+
     private static final MethodHandle REWRITE_TABLE_PATH = methodHandle(
             RewriteTablePathProcedure.class,
             "rewriteTablePath",
@@ -121,11 +135,11 @@ public class RewriteTablePathProcedure
                         new Argument("table_name", VARCHAR),
                         new Argument("source_prefix", VARCHAR),
                         new Argument("target_prefix", VARCHAR),
-                        new Argument("file_list_location", VARCHAR, false, null)),
+                        new Argument("staging_location", VARCHAR, false, null)),
                 REWRITE_TABLE_PATH.bindTo(this));
     }
 
-    public void rewriteTablePath(ConnectorSession session, String schema, String tableName, String sourcePrefix, String targetPrefix, String fileListLocation)
+    public void rewriteTablePath(ConnectorSession session, String schema, String tableName, String sourcePrefix, String targetPrefix, String stagingLocation)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
             SchemaTableName schemaTableName = new SchemaTableName(schema, tableName);
@@ -144,12 +158,22 @@ public class RewriteTablePathProcedure
 
             TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) icebergTable).operations().current();
 
+            // When staging_location is provided, metadata files are physically written there
+            // (preserving the relative suffix from source_prefix). The embedded path strings
+            // inside each file still reference target_prefix, so the files are correct once
+            // moved from staging to the final target location.
+            // When omitted, default to a UUID-named directory under the source table's
+            // metadata directory (matching the Iceberg spec behaviour).
+            String normalizedStaging = stagingLocation != null
+                    ? stripTrailingSlash(stagingLocation)
+                    : defaultStagingLocation(sourceMetadata);
+
             HdfsContext hdfsContext = new HdfsContext(session, schema, tableName, currentLocation, false);
             FileIO fileIO = new HdfsFileIO(manifestFileCache, hdfsEnvironment, hdfsContext);
 
-            // Accumulates source→target pairs for the optional file list CSV.
-            // Each entry is: [sourcePath, targetPath]
-            List<String[]> fileList = fileListLocation != null ? new ArrayList<>() : null;
+            // Always collect file pairs: [stagingPath, finalTargetPath] for metadata files,
+            // [sourcePath, finalTargetPath] for data files. Written to <staging>/file-list.
+            List<String[]> fileList = new ArrayList<>();
 
             // Step 1: Rewrite each unique manifest Avro file — substitute file_path inside
             // the nested data_file struct. Manifests are shared across snapshots so we
@@ -159,10 +183,10 @@ public class RewriteTablePathProcedure
                 for (ManifestFile manifest : snapshot.allManifests(fileIO)) {
                     if (rewrittenManifests.add(manifest.path())) {
                         collectDataFilePairs(manifest.path(), fileIO, normalizedSource, normalizedTarget, fileList);
-                        rewriteAvroFile(manifest.path(), "data_file", "file_path", fileIO, normalizedSource, normalizedTarget);
-                        if (fileList != null) {
-                            fileList.add(new String[] {manifest.path(), manifest.path().replace(normalizedSource, normalizedTarget)});
-                        }
+                        String manifestStagingPath = manifest.path().replace(normalizedSource, normalizedStaging);
+                        String manifestFinalPath = manifest.path().replace(normalizedSource, normalizedTarget);
+                        rewriteAvroFile(manifest.path(), MANIFEST_DATA_FILE_FIELD, MANIFEST_FILE_PATH_FIELD, fileIO, normalizedSource, normalizedTarget, manifestStagingPath);
+                        fileList.add(new String[] {manifestStagingPath, manifestFinalPath});
                     }
                 }
             }
@@ -171,38 +195,37 @@ public class RewriteTablePathProcedure
             // (top-level field in each record).
             Set<String> rewrittenManifestLists = new HashSet<>();
             for (Snapshot snapshot : sourceMetadata.snapshots()) {
-                String manifestListLocation = snapshot.manifestListLocation();
-                if (manifestListLocation != null && rewrittenManifestLists.add(manifestListLocation)) {
-                    rewriteAvroFile(manifestListLocation, null, "manifest_path", fileIO, normalizedSource, normalizedTarget);
-                    if (fileList != null) {
-                        fileList.add(new String[] {manifestListLocation, manifestListLocation.replace(normalizedSource, normalizedTarget)});
-                    }
+                String manifestListPath = snapshot.manifestListLocation();
+                if (manifestListPath != null && rewrittenManifestLists.add(manifestListPath)) {
+                    String manifestListStagingPath = manifestListPath.replace(normalizedSource, normalizedStaging);
+                    String manifestListFinalPath = manifestListPath.replace(normalizedSource, normalizedTarget);
+                    rewriteAvroFile(manifestListPath, null, MANIFEST_LIST_PATH_FIELD, fileIO, normalizedSource, normalizedTarget, manifestListStagingPath);
+                    fileList.add(new String[] {manifestListStagingPath, manifestListFinalPath});
                 }
             }
 
             // Step 3: Rewrite the metadata JSON — full string replacement covers the table
             // location, snapshot manifest-list pointers, and any explicit location properties.
+            // The content uses target_prefix throughout; the file is physically written to staging.
             String sourceJson = TableMetadataParser.toJson(sourceMetadata);
             String targetJson = sourceJson.replace(normalizedSource, normalizedTarget);
-            String newMetadataLocation = sourceMetadata.metadataFileLocation()
+            String metadataStagingPath = sourceMetadata.metadataFileLocation()
+                    .replace(normalizedSource, normalizedStaging);
+            String metadataFinalPath = sourceMetadata.metadataFileLocation()
                     .replace(normalizedSource, normalizedTarget);
-            OutputFile outputFile = fileIO.newOutputFile(newMetadataLocation);
-            TableMetadata newMetadata = TableMetadataParser.fromJson(newMetadataLocation, targetJson);
+            OutputFile outputFile = fileIO.newOutputFile(metadataStagingPath);
+            TableMetadata newMetadata = TableMetadataParser.fromJson(metadataFinalPath, targetJson);
             TableMetadataParser.write(newMetadata, outputFile);
-            if (fileList != null) {
-                fileList.add(new String[] {sourceMetadata.metadataFileLocation(), newMetadataLocation});
-            }
+            fileList.add(new String[] {metadataStagingPath, metadataFinalPath});
 
-            // Step 4 (optional): Write the CSV file list.
-            if (fileList != null) {
-                writeCsvFileList(fileList, fileListLocation, fileIO);
-            }
+            // Step 4: Always write the file list to <staging_location>/file-list.
+            writeCsvFileList(fileList, normalizedStaging + "/" + FILE_LIST_NAME, fileIO);
         }
     }
 
     /**
      * Reads a manifest Avro file and appends one {@code [source, target]} pair per data/delete
-     * file entry into {@code fileList}. No-op when {@code fileList} is null.
+     * file entry into {@code fileList}.
      */
     private static void collectDataFilePairs(
             String manifestPath,
@@ -211,9 +234,6 @@ public class RewriteTablePathProcedure
             String targetPrefix,
             List<String[]> fileList)
     {
-        if (fileList == null) {
-            return;
-        }
         byte[] sourceBytes = readAllBytes(fileIO.newInputFile(manifestPath));
         try (DataFileReader<GenericRecord> reader = new DataFileReader<>(
                 new SeekableByteArrayInput(sourceBytes),
@@ -242,29 +262,31 @@ public class RewriteTablePathProcedure
 
     /**
      * Writes a two-column CSV (no header) of {@code source,target} file path pairs to
-     * {@code fileListLocation} using the given {@code fileIO}.
+     * {@code path} using the given {@code fileIO}.
      */
-    private static void writeCsvFileList(List<String[]> fileList, String fileListLocation, FileIO fileIO)
+    private static void writeCsvFileList(List<String[]> fileList, String path, FileIO fileIO)
     {
         StringBuilder csv = new StringBuilder();
         for (String[] pair : fileList) {
             csv.append(pair[0]).append(',').append(pair[1]).append('\n');
         }
         byte[] bytes = csv.toString().getBytes(StandardCharsets.UTF_8);
-        OutputFile outputFile = fileIO.newOutputFile(fileListLocation);
+        OutputFile outputFile = fileIO.newOutputFile(path);
         try (PositionOutputStream out = outputFile.createOrOverwrite()) {
             out.write(bytes);
         }
         catch (IOException e) {
             throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
-                    format("Failed to write file list to '%s'", fileListLocation), e);
+                    format("Failed to write file list to '%s'", path), e);
         }
     }
 
     /**
      * Reads the Avro container file at {@code sourcePath}, rewrites the string field identified
      * by {@code pathField} (optionally nested inside a record field named {@code nestedRecord}),
-     * and writes the result to the corresponding target path.
+     * and writes the result to {@code writePath}. The embedded path strings are rewritten from
+     * {@code sourcePrefix} to {@code targetPrefix} regardless of where the file is physically
+     * written (supporting the staging-location pattern).
      *
      * @param nestedRecord if non-null, the path field is inside this nested record (e.g.
      *                     {@code "data_file"} for manifest files); if null the field is top-level
@@ -276,16 +298,16 @@ public class RewriteTablePathProcedure
             String pathField,
             FileIO fileIO,
             String sourcePrefix,
-            String targetPrefix)
+            String targetPrefix,
+            String writePath)
     {
-        String targetPath = sourcePath.replace(sourcePrefix, targetPrefix);
         byte[] sourceBytes = readAllBytes(fileIO.newInputFile(sourcePath));
 
         try (DataFileReader<GenericRecord> reader = new DataFileReader<>(
                 new SeekableByteArrayInput(sourceBytes),
                 new GenericDatumReader<>())) {
             Schema schema = reader.getSchema();
-            OutputFile outputFile = fileIO.newOutputFile(targetPath);
+            OutputFile outputFile = fileIO.newOutputFile(writePath);
             try (DataFileWriter<GenericRecord> writer = new DataFileWriter<>(new GenericDatumWriter<>(schema))) {
                 String codec = reader.getMetaString("avro.codec");
                 writer.setCodec(org.apache.avro.file.CodecFactory.fromString(codec != null ? codec : "null"));
@@ -298,7 +320,7 @@ public class RewriteTablePathProcedure
         }
         catch (IOException e) {
             throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
-                    format("Failed to rewrite Avro file '%s' -> '%s'", sourcePath, targetPath), e);
+                    format("Failed to rewrite Avro file '%s' -> '%s'", sourcePath, writePath), e);
         }
     }
 
@@ -320,6 +342,17 @@ public class RewriteTablePathProcedure
         if (value != null) {
             target.put(field.pos(), new org.apache.avro.util.Utf8(value.toString().replace(sourcePrefix, targetPrefix)));
         }
+    }
+
+    /**
+     * Returns the default staging directory: a UUID-named subdirectory under the source table's
+     * metadata directory, matching the Iceberg spec default staging behaviour.
+     */
+    private static String defaultStagingLocation(TableMetadata sourceMetadata)
+    {
+        String metadataFileLocation = sourceMetadata.metadataFileLocation();
+        String metadataDir = metadataFileLocation.substring(0, metadataFileLocation.lastIndexOf('/'));
+        return metadataDir + "/" + STAGING_DIR_PREFIX + UUID.randomUUID();
     }
 
     private static byte[] readAllBytes(InputFile inputFile)
