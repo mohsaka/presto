@@ -87,9 +87,15 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
  * UUID-based ({@code 00002-&lt;uuid&gt;.metadata.json}). Both are matched by filename suffix.
  * The ordered list is: all {@code previousFiles()} entries (oldest first)
  * followed by the current metadata file. Only metadata JSON files whose position falls within
- * {@code [start_version, end_version]} (inclusive) are rewritten; manifest list and manifest
- * Avro files for all snapshots reachable from the in-range metadata are always rewritten in
- * full, because they are shared across versions and must be consistent.
+ * {@code [start_version, end_version]} (inclusive) are rewritten.
+ *
+ * <p><strong>Incremental migration:</strong> When {@code start_version} is provided, only data
+ * files created by snapshots in the delta ({@code end_version.snapshots - start_version.snapshots})
+ * are included in the file list. This enables incremental migrations where data files from
+ * {@code start_version} are assumed to already exist at the target location. When
+ * {@code start_version} is null (full migration), all data files referenced by {@code end_version}
+ * are included. Manifest lists for all snapshots in {@code end_version} are always rewritten to
+ * maintain metadata consistency.
  *
  * <p>Rewrite scope per file type:
  * <ul>
@@ -172,7 +178,7 @@ public class RewriteTablePathProcedure
                         currentLocation, normalizedSource));
             }
 
-            TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) icebergTable).operations().current();
+            TableMetadata currentMetadata = ((org.apache.iceberg.BaseTable) icebergTable).operations().current();
 
             // When staging_location is provided, metadata files are physically written there
             // (preserving the relative suffix from source_prefix). The embedded path strings
@@ -182,7 +188,7 @@ public class RewriteTablePathProcedure
             // metadata directory (matching the Iceberg spec behaviour).
             String normalizedStaging = stagingLocation != null
                     ? stripTrailingSlash(stagingLocation)
-                    : defaultStagingLocation(sourceMetadata);
+                    : defaultStagingLocation(currentMetadata);
 
             HdfsContext hdfsContext = new HdfsContext(session, schema, tableName, currentLocation, false);
             FileIO fileIO = new HdfsFileIO(manifestFileCache, hdfsEnvironment, hdfsContext);
@@ -191,43 +197,13 @@ public class RewriteTablePathProcedure
             // [sourcePath, finalTargetPath] for data files. Written to <staging>/file-list.
             List<String[]> fileList = new ArrayList<>();
 
-            // Step 1: Rewrite each unique manifest Avro file — substitute file_path inside
-            // the nested data_file struct. Manifests are shared across snapshots so we
-            // deduplicate by path.
-            Set<String> rewrittenManifests = new HashSet<>();
-            for (Snapshot snapshot : sourceMetadata.snapshots()) {
-                for (ManifestFile manifest : snapshot.allManifests(fileIO)) {
-                    if (rewrittenManifests.add(manifest.path())) {
-                        collectDataFilePairs(manifest.path(), fileIO, normalizedSource, normalizedTarget, fileList);
-                        String manifestStagingPath = manifest.path().replace(normalizedSource, normalizedStaging);
-                        String manifestFinalPath = manifest.path().replace(normalizedSource, normalizedTarget);
-                        rewriteAvroFile(manifest.path(), MANIFEST_DATA_FILE_FIELD, MANIFEST_FILE_PATH_FIELD, fileIO, normalizedSource, normalizedTarget, manifestStagingPath);
-                        fileList.add(new String[] {manifestStagingPath, manifestFinalPath});
-                    }
-                }
-            }
-
-            // Step 2: Rewrite each unique manifest list Avro file — substitute manifest_path
-            // (top-level field in each record).
-            Set<String> rewrittenManifestLists = new HashSet<>();
-            for (Snapshot snapshot : sourceMetadata.snapshots()) {
-                String manifestListPath = snapshot.manifestListLocation();
-                if (manifestListPath != null && rewrittenManifestLists.add(manifestListPath)) {
-                    String manifestListStagingPath = manifestListPath.replace(normalizedSource, normalizedStaging);
-                    String manifestListFinalPath = manifestListPath.replace(normalizedSource, normalizedTarget);
-                    rewriteAvroFile(manifestListPath, null, MANIFEST_LIST_PATH_FIELD, fileIO, normalizedSource, normalizedTarget, manifestListStagingPath);
-                    fileList.add(new String[] {manifestListStagingPath, manifestListFinalPath});
-                }
-            }
-
-            // Step 3: Rewrite metadata JSON files — current and all previous versions tracked
-            // in the metadata log, optionally bounded to [start_version, end_version].
+            // Determine the metadata version range [start_version, end_version].
             // Build the full ordered list (oldest → newest) then slice to the requested window.
             List<String> allMetadataFiles = new ArrayList<>();
-            for (TableMetadata.MetadataLogEntry entry : sourceMetadata.previousFiles()) {
+            for (TableMetadata.MetadataLogEntry entry : currentMetadata.previousFiles()) {
                 allMetadataFiles.add(entry.file());
             }
-            allMetadataFiles.add(sourceMetadata.metadataFileLocation());
+            allMetadataFiles.add(currentMetadata.metadataFileLocation());
 
             int startIdx = 0;
             int endIdx = allMetadataFiles.size() - 1;
@@ -244,11 +220,67 @@ public class RewriteTablePathProcedure
                         startVersion, endVersion));
             }
 
+            // Load metadata for start and end versions to determine which snapshots to process.
+            // Only snapshots referenced by metadata versions in [start, end] should have their
+            // manifests and data files included in the migration (matching Iceberg Spark behavior).
+            TableMetadata startMetadata = startVersion != null
+                    ? readMetadata(allMetadataFiles.get(startIdx), fileIO)
+                    : null;
+            TableMetadata endMetadata = readMetadata(allMetadataFiles.get(endIdx), fileIO);
+
+            // Calculate delta snapshots: snapshots in end but not in start.
+            Set<Long> startSnapshotIds = startMetadata != null
+                    ? startMetadata.snapshots().stream().map(Snapshot::snapshotId).collect(java.util.stream.Collectors.toSet())
+                    : java.util.Collections.emptySet();
+            Set<Snapshot> deltaSnapshots = endMetadata.snapshots().stream()
+                    .filter(s -> !startSnapshotIds.contains(s.snapshotId()))
+                    .collect(java.util.stream.Collectors.toSet());
+
+            // Step 1: Determine which data files to include based on start_version.
+            // When start_version is null (full migration): include ALL data files from end_version.
+            // When start_version is provided (incremental migration): include only data files
+            // created in delta snapshots (end_version.snapshots - start_version.snapshots).
+            Set<Long> deltaSnapshotIds = startVersion != null
+                    ? deltaSnapshots.stream().map(Snapshot::snapshotId).collect(java.util.stream.Collectors.toSet())
+                    : java.util.Collections.emptySet(); // Empty set signals: include all data files
+
+            // Step 2: Rewrite each unique manifest Avro file from end metadata.
+            // Manifests are shared across snapshots so we deduplicate by path.
+            // We iterate over all snapshots in endMetadata to ensure we have all manifests,
+            // but data file filtering depends on whether start_version was provided.
+            Set<String> rewrittenManifests = new HashSet<>();
+            for (Snapshot snapshot : endMetadata.snapshots()) {
+                for (ManifestFile manifest : snapshot.allManifests(fileIO)) {
+                    if (rewrittenManifests.add(manifest.path())) {
+                        collectDataFilePairs(manifest.path(), fileIO, normalizedSource, normalizedTarget, deltaSnapshotIds, fileList);
+                        String manifestStagingPath = manifest.path().replace(normalizedSource, normalizedStaging);
+                        String manifestFinalPath = manifest.path().replace(normalizedSource, normalizedTarget);
+                        rewriteAvroFile(manifest.path(), MANIFEST_DATA_FILE_FIELD, MANIFEST_FILE_PATH_FIELD, fileIO, normalizedSource, normalizedTarget, manifestStagingPath);
+                        fileList.add(new String[] {manifestStagingPath, manifestFinalPath});
+                    }
+                }
+            }
+
+            // Step 3: Rewrite manifest list Avro files from all snapshots in end metadata
+            // (not just delta), because manifest lists are tied to specific snapshots and must
+            // all be present for the end version to be valid.
+            Set<String> rewrittenManifestLists = new HashSet<>();
+            for (Snapshot snapshot : endMetadata.snapshots()) {
+                String manifestListPath = snapshot.manifestListLocation();
+                if (manifestListPath != null && rewrittenManifestLists.add(manifestListPath)) {
+                    String manifestListStagingPath = manifestListPath.replace(normalizedSource, normalizedStaging);
+                    String manifestListFinalPath = manifestListPath.replace(normalizedSource, normalizedTarget);
+                    rewriteAvroFile(manifestListPath, null, MANIFEST_LIST_PATH_FIELD, fileIO, normalizedSource, normalizedTarget, manifestListStagingPath);
+                    fileList.add(new String[] {manifestListStagingPath, manifestListFinalPath});
+                }
+            }
+
+            // Step 4: Rewrite metadata JSON files in the version range [start_version, end_version].
             for (int i = startIdx; i <= endIdx; i++) {
                 rewriteMetadataJson(allMetadataFiles.get(i), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
             }
 
-            // Step 4: Optionally write the file list to <staging_location>/file-list.
+            // Step 5: Optionally write the file list to <staging_location>/file-list.
             if (createFileList) {
                 writeCsvFileList(fileList, normalizedStaging + "/" + FILE_LIST_NAME, fileIO);
             }
@@ -257,13 +289,17 @@ public class RewriteTablePathProcedure
 
     /**
      * Reads a manifest Avro file and appends one {@code [source, target]} pair per data/delete
-     * file entry into {@code fileList}.
+     * file entry into {@code fileList}, filtered by snapshot_id when deltaSnapshotIds is non-empty.
+     * When deltaSnapshotIds is empty, all data files are included (full migration).
+     *
+     * @param deltaSnapshotIds snapshot IDs to include; if empty, include all entries
      */
     private static void collectDataFilePairs(
             String manifestPath,
             FileIO fileIO,
             String sourcePrefix,
             String targetPrefix,
+            Set<Long> deltaSnapshotIds,
             List<String[]> fileList)
     {
         byte[] sourceBytes = readAllBytes(fileIO.newInputFile(manifestPath));
@@ -271,6 +307,21 @@ public class RewriteTablePathProcedure
                 new SeekableByteArrayInput(sourceBytes),
                 new GenericDatumReader<>())) {
             for (GenericRecord record : reader) {
+                // Filter by snapshot_id if deltaSnapshotIds is provided.
+                // Each manifest entry has a snapshot_id field indicating which snapshot created it.
+                if (!deltaSnapshotIds.isEmpty()) {
+                    Schema.Field snapshotIdField = record.getSchema().getField("snapshot_id");
+                    if (snapshotIdField != null) {
+                        Object snapshotIdValue = record.get(snapshotIdField.pos());
+                        if (snapshotIdValue != null) {
+                            Long snapshotId = (Long) snapshotIdValue;
+                            if (!deltaSnapshotIds.contains(snapshotId)) {
+                                continue; // Skip this entry; it's from a snapshot before start_version
+                            }
+                        }
+                    }
+                }
+
                 GenericRecord dataFile = (GenericRecord) record.get("data_file");
                 if (dataFile == null) {
                     continue;
@@ -458,6 +509,22 @@ public class RewriteTablePathProcedure
         }
 
         fileList.add(new String[] {stagingPath, finalTargetPath});
+    }
+
+    /**
+     * Reads and parses a metadata JSON file from the given path using the Iceberg
+     * TableMetadataParser. Returns the parsed TableMetadata object.
+     */
+    private static TableMetadata readMetadata(String metadataPath, FileIO fileIO)
+    {
+        try {
+            InputFile inputFile = fileIO.newInputFile(metadataPath);
+            return org.apache.iceberg.TableMetadataParser.read(fileIO, metadataPath);
+        }
+        catch (Exception e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to read metadata file '%s'", metadataPath), e);
+        }
     }
 
     private static byte[] readAllBytes(InputFile inputFile)

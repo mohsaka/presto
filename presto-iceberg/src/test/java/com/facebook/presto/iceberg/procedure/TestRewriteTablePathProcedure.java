@@ -485,11 +485,10 @@ public class TestRewriteTablePathProcedure
     public void testRewriteTablePathVersionRangeFiltersMetadata()
             throws IOException
     {
-        // start=v2, end=v3 (of 4 total): only v2 and v3 are rewritten to staging; v1 and v4
-        // are absent. Registering at end_version's rewritten metadata produces a table at the
-        // state captured in v3 — i.e. rows inserted before v4 only: (1,'a') and (2,'b').
+        // start=v2, end=v3 (of 4 total): only metadata v2 and v3 are rewritten; v1 and v4
+        // are absent. With start_version specified, only delta data files are included
+        // (incremental migration). This test validates metadata windowing and data file filtering.
         String sourceName = "rewrite_table_path_version_range";
-        String targetName = "rewrite_table_path_version_range_tgt";
         createTable(sourceName);
         try {
             // CREATE → v1, three inserts → v2, v3, v4.
@@ -522,7 +521,7 @@ public class TestRewriteTablePathProcedure
                     "CALL system.rewrite_table_path(schema => '%s', table_name => '%s', source_prefix => '%s', target_prefix => '%s', start_version => '%s', end_version => '%s', staging_location => '%s')",
                     TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, startVersion, endVersion, stagingLocation));
 
-            // Verify only the windowed versions appear in staging.
+            // Verify only the windowed metadata versions appear in staging.
             String stagingLocalPath = stagingLocation.startsWith("file:") ? stagingLocation.substring("file:".length()) : stagingLocation;
             List<String> rewrittenNames = Files.walk(java.nio.file.Paths.get(stagingLocalPath))
                     .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
@@ -538,20 +537,21 @@ public class TestRewriteTablePathProcedure
             assertTrue(!rewrittenNames.contains(allVersions.get(allVersions.size() - 1)),
                     "Version after end_version '" + allVersions.get(allVersions.size() - 1) + "' must NOT be rewritten");
 
-            // Copy all files from the file-list (data + rewritten metadata) and register at
-            // end_version's target path. The registered table reflects the state at v3.
-            copyFromFileList(stagingLocation);
-            String endVersionTargetPath = targetPrefix + originalLocation.substring(sourcePrefix.length())
-                    + "/metadata/" + endVersion;
-            String targetMetadataDir = endVersionTargetPath.substring(0, endVersionTargetPath.lastIndexOf('/'));
-            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
-                    TEST_SCHEMA, targetName, targetMetadataDir));
-            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
-                    "VALUES (1, 'a'), (2, 'b')");
+            // Verify delta data file filtering: start=v2 (after insert 1), end=v3 (after insert 2).
+            // Delta = snapshots in v3 but not in v2 = snapshot from insert 2.
+            // Should include only 1 data file (from insert 2), not 2 files.
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localPath));
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+            assertEquals(dataFileCount, 1,
+                    "Expected 1 delta data file when start=v2, end=v3 (incremental migration)");
         }
         finally {
             dropTable(sourceName);
-            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
         }
     }
 
@@ -560,10 +560,10 @@ public class TestRewriteTablePathProcedure
             throws IOException
     {
         // Only start_version provided: rewrites from start_version to the current metadata
-        // version inclusive. Registering at the current version's target path produces a
-        // table with all rows — (1,'a'), (2,'b'), (3,'c') — since end defaults to current.
+        // version inclusive. With start_version specified, only delta data files are included
+        // (incremental migration), so data files from start_version are assumed to already
+        // exist at target. This test validates metadata windowing only, not end-to-end query.
         String sourceName = "rewrite_table_path_only_start";
-        String targetName = "rewrite_table_path_only_start_tgt";
         createTable(sourceName);
         try {
             // CREATE → v1, three inserts → v2, v3, v4.
@@ -585,11 +585,10 @@ public class TestRewriteTablePathProcedure
             allVersions.add(sourceMetadata.metadataFileLocation().substring(
                     sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
 
-            assertTrue(allVersions.size() >= 3, "Expected at least 3 metadata versions");
+            assertTrue(allVersions.size() >= 4, "Expected at least 4 metadata versions");
 
             // Start from the second version — v1 must be absent, v2 through current must appear.
             String startVersion = allVersions.get(1);
-            String currentVersion = allVersions.get(allVersions.size() - 1);
 
             assertUpdate(format(
                     "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s', null, '%s')",
@@ -609,20 +608,21 @@ public class TestRewriteTablePathProcedure
             assertTrue(!rewrittenNames.contains(allVersions.get(0)),
                     "Version '" + allVersions.get(0) + "' before start_version must NOT be rewritten");
 
-            // Copy from file-list and register at the current (newest) version's target path.
-            // end defaults to current → all 3 rows are visible.
-            copyFromFileList(stagingLocation);
-            String currentVersionTargetPath = targetPrefix + originalLocation.substring(sourcePrefix.length())
-                    + "/metadata/" + currentVersion;
-            String targetMetadataDir = currentVersionTargetPath.substring(0, currentVersionTargetPath.lastIndexOf('/'));
-            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
-                    TEST_SCHEMA, targetName, targetMetadataDir));
-            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
-                    "VALUES (1, 'a'), (2, 'b'), (3, 'c')");
+            // Verify that only delta data files are included.
+            // start=v2 (after 1st insert), end=v4 (after 3rd insert).
+            // Delta = inserts 2 and 3, so 2 data files.
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localPath));
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+            assertEquals(dataFileCount, 2,
+                    "Expected 2 delta data files when start_version=v2 (incremental migration)");
         }
         finally {
             dropTable(sourceName);
-            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
         }
     }
 
@@ -812,6 +812,225 @@ public class TestRewriteTablePathProcedure
             dropTable(sourceName);
             assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetNameFilename);
             assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetNameFullPath);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathEndVersionFiltersDataFiles()
+            throws IOException
+    {
+        // Validates that when end_version is specified, only data files from snapshots
+        // referenced by metadata versions [start, end] are included in the file list.
+        // This test creates 3 inserts (3 data files, 3 snapshots), then rewrites with
+        // end_version=v3 (after 2nd insert). The file-list should contain only 2 data
+        // files, not all 3.
+        String sourceName = "rewrite_table_path_end_version_filters_data";
+        String targetName = "rewrite_table_path_end_version_filters_data_tgt";
+        createTable(sourceName);
+        try {
+            // CREATE → v1 (no data), three inserts → v2, v3, v4 (each with 1 data file).
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_efdf_target";
+            String stagingLocation = sourcePrefix + "_efdf_staging";
+
+            // Collect all metadata filenames in chronological order.
+            TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) table).operations().current();
+            List<String> allVersions = new java.util.ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 4,
+                    "Expected at least 4 metadata versions, got: " + allVersions);
+
+            // Set end_version to v3 — after the 2nd insert (2 data files) but before 3rd (3 data files).
+            String endVersion = allVersions.get(allVersions.size() - 2); // v3 — second-to-last
+
+            // Rewrite with end_version=v3.
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path(schema => '%s', table_name => '%s', source_prefix => '%s', target_prefix => '%s', end_version => '%s', staging_location => '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, endVersion, stagingLocation));
+
+            // Read the file-list and count data files (.parquet).
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localPath));
+
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])  // source column
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+
+            // CRITICAL: Should be 2 data files (from first two inserts), NOT 3.
+            // This validates the fix — before the fix, it would include all 3 data files.
+            assertEquals(dataFileCount, 2,
+                    format("Expected exactly 2 data files in file-list when end_version=v3, but found %d", dataFileCount));
+
+            // Verify the migration is valid by copying files and registering the table.
+            copyFromFileList(stagingLocation);
+            String endVersionTargetPath = targetPrefix + originalLocation.substring(sourcePrefix.length())
+                    + "/metadata/" + endVersion;
+            String targetMetadataDir = endVersionTargetPath.substring(0, endVersionTargetPath.lastIndexOf('/'));
+            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
+                    TEST_SCHEMA, targetName, targetMetadataDir));
+
+            // Query should return only the first 2 rows (matching v3 state).
+            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
+                    "VALUES (1, 'a'), (2, 'b')");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathStartAndEndVersionFiltersDataFiles()
+            throws IOException
+    {
+        // Validates that when both start_version and end_version are specified, only data files
+        // from snapshots in the delta [start, end] are included. This test creates 4 inserts,
+        // then rewrites with start_version=v2, end_version=v4. The file-list should contain
+        // only data files from inserts 2 and 3 (the delta), not insert 1 or 4.
+        String sourceName = "rewrite_table_path_start_end_filters_data";
+        createTable(sourceName);
+        try {
+            // CREATE → v1, four inserts → v2, v3, v4, v5.
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (4, 'd')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_sefd_target";
+            String stagingLocation = sourcePrefix + "_sefd_staging";
+
+            TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) table).operations().current();
+            List<String> allVersions = new java.util.ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 5, "Expected at least 5 metadata versions");
+
+            // Set start_version to v2 (after 1st insert) and end_version to v4 (after 3rd insert).
+            // Delta snapshots = v3, v4 (2nd and 3rd inserts).
+            String startVersion = allVersions.get(1); // v2 — after 1st insert
+            String endVersion = allVersions.get(3);   // v4 — after 3rd insert
+
+            // Rewrite with start=v2, end=v4.
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, startVersion, endVersion, stagingLocation));
+
+            // Read the file-list and count data files.
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localPath));
+
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+
+            // CRITICAL: Should be 2 data files (2nd and 3rd inserts, which are in the delta).
+            // v2 has 1 data file (insert 1), v4 has 3 data files (inserts 1,2,3).
+            // Delta = v4.snapshots - v2.snapshots = snapshots from inserts 2,3.
+            // Before the fix, this would include all 3 data files from v4.
+            assertEquals(dataFileCount, 2,
+                    format("Expected exactly 2 data files in file-list when start=v2, end=v4, but found %d", dataFileCount));
+        }
+        finally {
+            dropTable(sourceName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathIncrementalMigrationWorkflow()
+            throws IOException
+    {
+        // Validates the incremental migration workflow: demonstrates that when start_version
+        // is provided, only delta data files are included in the file-list. This test
+        // validates the file-list contents for both full and incremental migrations.
+        String sourceName = "rewrite_table_path_incremental";
+        createTable(sourceName);
+        try {
+            // CREATE → v1, four inserts → v2, v3, v4, v5.
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (4, 'd')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_incr_target";
+            String stagingLocation1 = sourcePrefix + "_incr_staging1";
+            String stagingLocation2 = sourcePrefix + "_incr_staging2";
+
+            TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) table).operations().current();
+            List<String> allVersions = new java.util.ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 5, "Expected at least 5 metadata versions");
+
+            String v2 = allVersions.get(1); // after 1st insert
+            String v4 = allVersions.get(3); // after 3rd insert
+
+            // Phase 1: Full migration to v2 (no start_version).
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, v2, stagingLocation1));
+
+            // Read phase 1 file-list and count data files.
+            String fileListPath1 = stagingLocation1 + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath1 = fileListPath1.startsWith("file:") ? fileListPath1.substring("file:".length()) : fileListPath1;
+            List<String> lines1 = Files.readAllLines(java.nio.file.Paths.get(localPath1));
+            long dataFileCount1 = lines1.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+            assertEquals(dataFileCount1, 1,
+                    "Full migration to v2 should include 1 data file");
+
+            // Phase 2: Incremental migration from v2 to v4 (with start_version=v2).
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, v2, v4, stagingLocation2));
+
+            // Read phase 2 file-list and verify it contains only delta data files (2 files).
+            String fileListPath2 = stagingLocation2 + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath2 = fileListPath2.startsWith("file:") ? fileListPath2.substring("file:".length()) : fileListPath2;
+            List<String> lines2 = Files.readAllLines(java.nio.file.Paths.get(localPath2));
+            long dataFileCount2 = lines2.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+            assertEquals(dataFileCount2, 2,
+                    "Incremental migration from v2 to v4 should include only 2 delta data files");
+
+            // Validate that the total data files across both phases equals 3 (all inserts).
+            assertEquals(dataFileCount1 + dataFileCount2, 3,
+                    "Total data files across full + incremental should equal 3");
+        }
+        finally {
+            dropTable(sourceName);
         }
     }
 
