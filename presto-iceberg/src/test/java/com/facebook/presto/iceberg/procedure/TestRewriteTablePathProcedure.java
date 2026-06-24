@@ -741,6 +741,80 @@ public class TestRewriteTablePathProcedure
         }
     }
 
+    @Test
+    public void testRewriteTablePathVersionMatchByFullPath()
+            throws IOException
+    {
+        // Verifies that start_version and end_version are matched correctly when the caller
+        // supplies the full path (e.g. file:/…/metadata/v2.metadata.json) rather than just
+        // the bare filename. Both forms must select the same version.
+        String sourceName = "rewrite_table_path_full_path_match";
+        String targetNameFilename = "rewrite_table_path_full_path_filename_tgt";
+        String targetNameFullPath = "rewrite_table_path_full_path_fullpath_tgt";
+        createTable(sourceName);
+        try {
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+
+            TableMetadata sourceMetadata = ((org.apache.iceberg.BaseTable) table).operations().current();
+            // Build both the bare filename and the full path for the second-to-last version.
+            List<String> allFullPaths = new java.util.ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allFullPaths.add(e.file()));
+            allFullPaths.add(sourceMetadata.metadataFileLocation());
+
+            assertTrue(allFullPaths.size() >= 3, "Expected at least 3 metadata versions");
+
+            // Pick the same version expressed two different ways.
+            String fullPath = allFullPaths.get(allFullPaths.size() - 2);         // e.g. file:/…/v3.metadata.json
+            String bareFilename = fullPath.substring(fullPath.lastIndexOf('/') + 1); // e.g. v3.metadata.json
+
+            // Run once with the bare filename.
+            String stagingFilename = sourcePrefix + "_fp_staging_filename";
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, sourcePrefix + "_fp_target_filename",
+                    bareFilename, stagingFilename));
+
+            // Run again with the full path.
+            String stagingFullPath = sourcePrefix + "_fp_staging_fullpath";
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, sourcePrefix + "_fp_target_fullpath",
+                    fullPath, stagingFullPath));
+
+            // Both staging directories must contain the same set of metadata filenames —
+            // confirming that the bare filename and the full path resolved to the same version.
+            String stagingFilenameLocal = stagingFilename.startsWith("file:") ? stagingFilename.substring("file:".length()) : stagingFilename;
+            String stagingFullPathLocal = stagingFullPath.startsWith("file:") ? stagingFullPath.substring("file:".length()) : stagingFullPath;
+
+            List<String> filenameResults = Files.walk(java.nio.file.Paths.get(stagingFilenameLocal))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            List<String> fullPathResults = Files.walk(java.nio.file.Paths.get(stagingFullPathLocal))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            assertEquals(fullPathResults, filenameResults,
+                    "Full-path and bare-filename end_version must resolve to the same metadata window");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetNameFilename);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetNameFullPath);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // End-to-end — full migration using the file-list as the sole copy manifest
     // -------------------------------------------------------------------------
