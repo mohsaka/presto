@@ -57,6 +57,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.facebook.presto.common.block.MethodHandleUtil.methodHandle;
+import static com.facebook.presto.common.type.StandardTypes.BOOLEAN;
 import static com.facebook.presto.common.type.StandardTypes.VARCHAR;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_FILESYSTEM_ERROR;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
@@ -80,6 +81,14 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
  * ready to use once moved from staging to the final target. When omitted, files are written
  * directly to {@code target_prefix} (the previous default behaviour).
  *
+ * <p>{@code start_version} and {@code end_version} optionally bound the set of metadata JSON
+ * files that are rewritten. Each value may be a bare filename (e.g. {@code v2.metadata.json})
+ * or a full path. The ordered list is: all {@code previousFiles()} entries (oldest first)
+ * followed by the current metadata file. Only metadata JSON files whose position falls within
+ * {@code [start_version, end_version]} (inclusive) are rewritten; manifest list and manifest
+ * Avro files for all snapshots reachable from the in-range metadata are always rewritten in
+ * full, because they are shared across versions and must be consistent.
+ *
  * <p>Rewrite scope per file type:
  * <ul>
  *   <li>Metadata JSON: full serialized JSON string replacement covers all path fields.</li>
@@ -102,11 +111,14 @@ public class RewriteTablePathProcedure
             RewriteTablePathProcedure.class,
             "rewriteTablePath",
             ConnectorSession.class,
-            String.class,
-            String.class,
-            String.class,
-            String.class,
-            String.class);
+            String.class,   // schema
+            String.class,   // tableName
+            String.class,   // sourcePrefix
+            String.class,   // targetPrefix
+            String.class,   // startVersion
+            String.class,   // endVersion
+            String.class,   // stagingLocation
+            boolean.class); // createFileList
 
     private final IcebergMetadataFactory metadataFactory;
     private final HdfsEnvironment hdfsEnvironment;
@@ -134,11 +146,14 @@ public class RewriteTablePathProcedure
                         new Argument("table_name", VARCHAR),
                         new Argument("source_prefix", VARCHAR),
                         new Argument("target_prefix", VARCHAR),
-                        new Argument("staging_location", VARCHAR, false, null)),
+                        new Argument("start_version", VARCHAR, false, null),
+                        new Argument("end_version", VARCHAR, false, null),
+                        new Argument("staging_location", VARCHAR, false, null),
+                        new Argument("create_file_list", BOOLEAN, false, true)),
                 REWRITE_TABLE_PATH.bindTo(this));
     }
 
-    public void rewriteTablePath(ConnectorSession session, String schema, String tableName, String sourcePrefix, String targetPrefix, String stagingLocation)
+    public void rewriteTablePath(ConnectorSession session, String schema, String tableName, String sourcePrefix, String targetPrefix, String startVersion, String endVersion, String stagingLocation, boolean createFileList)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
             SchemaTableName schemaTableName = new SchemaTableName(schema, tableName);
@@ -203,17 +218,38 @@ public class RewriteTablePathProcedure
                 }
             }
 
-            // Step 3: Rewrite all metadata JSON files — current and all previous versions
-            // tracked in the metadata log. Full string replacement covers the table location,
-            // snapshot manifest-list pointers, and any explicit location properties.
-            // Each file is physically written to staging; content references target_prefix.
-            for (TableMetadata.MetadataLogEntry previousEntry : sourceMetadata.previousFiles()) {
-                rewriteMetadataJson(previousEntry.file(), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
+            // Step 3: Rewrite metadata JSON files — current and all previous versions tracked
+            // in the metadata log, optionally bounded to [start_version, end_version].
+            // Build the full ordered list (oldest → newest) then slice to the requested window.
+            List<String> allMetadataFiles = new ArrayList<>();
+            for (TableMetadata.MetadataLogEntry entry : sourceMetadata.previousFiles()) {
+                allMetadataFiles.add(entry.file());
             }
-            rewriteMetadataJson(sourceMetadata.metadataFileLocation(), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
+            allMetadataFiles.add(sourceMetadata.metadataFileLocation());
 
-            // Step 4: Always write the file list to <staging_location>/file-list.
-            writeCsvFileList(fileList, normalizedStaging + "/" + FILE_LIST_NAME, fileIO);
+            int startIdx = 0;
+            int endIdx = allMetadataFiles.size() - 1;
+
+            if (startVersion != null) {
+                startIdx = findMetadataVersionIndex(allMetadataFiles, startVersion);
+            }
+            if (endVersion != null) {
+                endIdx = findMetadataVersionIndex(allMetadataFiles, endVersion);
+            }
+            if (startIdx > endIdx) {
+                throw new PrestoException(ICEBERG_INVALID_METADATA, format(
+                        "start_version '%s' is chronologically after end_version '%s'",
+                        startVersion, endVersion));
+            }
+
+            for (int i = startIdx; i <= endIdx; i++) {
+                rewriteMetadataJson(allMetadataFiles.get(i), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
+            }
+
+            // Step 4: Optionally write the file list to <staging_location>/file-list.
+            if (createFileList) {
+                writeCsvFileList(fileList, normalizedStaging + "/" + FILE_LIST_NAME, fileIO);
+            }
         }
     }
 
@@ -336,6 +372,24 @@ public class RewriteTablePathProcedure
         if (value != null) {
             target.put(field.pos(), new org.apache.avro.util.Utf8(value.toString().replace(sourcePrefix, targetPrefix)));
         }
+    }
+
+    /**
+     * Finds the position of {@code version} in {@code metadataFiles} (ordered oldest → newest).
+     * {@code version} may be a bare filename (e.g. {@code v2.metadata.json}) or a full path.
+     * Throws {@link PrestoException} if no match is found.
+     */
+    private static int findMetadataVersionIndex(List<String> metadataFiles, String version)
+    {
+        for (int i = 0; i < metadataFiles.size(); i++) {
+            String path = metadataFiles.get(i);
+            // Match either the full path or just the filename component.
+            if (path.equals(version) || path.endsWith("/" + version)) {
+                return i;
+            }
+        }
+        throw new PrestoException(ICEBERG_INVALID_METADATA, format(
+                "Metadata version '%s' not found in table's metadata log", version));
     }
 
     /**
