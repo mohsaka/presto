@@ -35,10 +35,12 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.iceberg.CatalogType.HADOOP;
 import static com.facebook.presto.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
@@ -395,6 +397,61 @@ public class TestRewriteTablePathProcedure
                 "Procedure not registered: custom.rewrite_table_path");
         assertQueryFails("CALL system.rewrite_table_path(table_name => 'test', source_prefix => 'src', target_prefix => 'dst')",
                 "line 1:1: Required procedure argument 'schema' is missing");
+    }
+
+    @Test
+    public void testRewriteTablePathFileListGenerated()
+            throws IOException
+    {
+        String tableName = "rewrite_table_path_file_list";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_fl_migrated";
+
+            // Place the CSV alongside the new metadata root.
+            String fileListPath = targetPrefix + "/copy-files.csv";
+
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, fileListPath));
+
+            // Read the written CSV.
+            String localCsvPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(java.nio.file.Paths.get(localCsvPath));
+
+            // Every line must be "sourcePath,targetPath" — two non-empty columns.
+            assertTrue(lines.size() > 0, "CSV file should not be empty");
+            for (String line : lines) {
+                String[] parts = line.split(",", 2);
+                assertEquals(parts.length, 2, "Each CSV line should have exactly two columns: " + line);
+                assertTrue(parts[0].startsWith(sourcePrefix),
+                        format("Source column '%s' should start with '%s'", parts[0], sourcePrefix));
+                assertTrue(parts[1].startsWith(targetPrefix),
+                        format("Target column '%s' should start with '%s'", parts[1], targetPrefix));
+            }
+
+            // The CSV must contain the data files (.parquet), manifest Avros, manifest list
+            // Avros, and the metadata JSON.
+            List<String> sourceFiles = lines.stream().map(l -> l.split(",", 2)[0]).collect(Collectors.toList());
+            assertTrue(sourceFiles.stream().anyMatch(p -> p.endsWith(".parquet")),
+                    "CSV should contain at least one data file (.parquet)");
+            assertTrue(sourceFiles.stream().anyMatch(p -> p.contains("/metadata/snap-") && p.endsWith(".avro")),
+                    "CSV should contain at least one manifest list (.avro)");
+            assertTrue(sourceFiles.stream().anyMatch(p -> p.contains("/metadata/") && p.endsWith(".avro") && !p.contains("/metadata/snap-")),
+                    "CSV should contain at least one manifest file (.avro)");
+            assertTrue(sourceFiles.stream().anyMatch(p -> p.endsWith(".metadata.json")),
+                    "CSV should contain the metadata JSON file");
+        }
+        finally {
+            dropTable(tableName);
+        }
     }
 
     @Test

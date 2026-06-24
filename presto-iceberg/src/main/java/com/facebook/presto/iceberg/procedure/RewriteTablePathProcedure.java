@@ -42,6 +42,7 @@ import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.io.SeekableInputStream;
 
 import javax.inject.Provider;
@@ -49,7 +50,10 @@ import javax.inject.Provider;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static com.facebook.presto.common.block.MethodHandleUtil.methodHandle;
@@ -88,6 +92,7 @@ public class RewriteTablePathProcedure
             String.class,
             String.class,
             String.class,
+            String.class,
             String.class);
 
     private final IcebergMetadataFactory metadataFactory;
@@ -115,11 +120,12 @@ public class RewriteTablePathProcedure
                         new Argument("schema", VARCHAR),
                         new Argument("table_name", VARCHAR),
                         new Argument("source_prefix", VARCHAR),
-                        new Argument("target_prefix", VARCHAR)),
+                        new Argument("target_prefix", VARCHAR),
+                        new Argument("file_list_location", VARCHAR, false, null)),
                 REWRITE_TABLE_PATH.bindTo(this));
     }
 
-    public void rewriteTablePath(ConnectorSession session, String schema, String tableName, String sourcePrefix, String targetPrefix)
+    public void rewriteTablePath(ConnectorSession session, String schema, String tableName, String sourcePrefix, String targetPrefix, String fileListLocation)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
             SchemaTableName schemaTableName = new SchemaTableName(schema, tableName);
@@ -141,6 +147,10 @@ public class RewriteTablePathProcedure
             HdfsContext hdfsContext = new HdfsContext(session, schema, tableName, currentLocation, false);
             FileIO fileIO = new HdfsFileIO(manifestFileCache, hdfsEnvironment, hdfsContext);
 
+            // Accumulates source→target pairs for the optional file list CSV.
+            // Each entry is: [sourcePath, targetPath]
+            List<String[]> fileList = fileListLocation != null ? new ArrayList<>() : null;
+
             // Step 1: Rewrite each unique manifest Avro file — substitute file_path inside
             // the nested data_file struct. Manifests are shared across snapshots so we
             // deduplicate by path.
@@ -148,7 +158,11 @@ public class RewriteTablePathProcedure
             for (Snapshot snapshot : sourceMetadata.snapshots()) {
                 for (ManifestFile manifest : snapshot.allManifests(fileIO)) {
                     if (rewrittenManifests.add(manifest.path())) {
+                        collectDataFilePairs(manifest.path(), fileIO, normalizedSource, normalizedTarget, fileList);
                         rewriteAvroFile(manifest.path(), "data_file", "file_path", fileIO, normalizedSource, normalizedTarget);
+                        if (fileList != null) {
+                            fileList.add(new String[] {manifest.path(), manifest.path().replace(normalizedSource, normalizedTarget)});
+                        }
                     }
                 }
             }
@@ -160,6 +174,9 @@ public class RewriteTablePathProcedure
                 String manifestListLocation = snapshot.manifestListLocation();
                 if (manifestListLocation != null && rewrittenManifestLists.add(manifestListLocation)) {
                     rewriteAvroFile(manifestListLocation, null, "manifest_path", fileIO, normalizedSource, normalizedTarget);
+                    if (fileList != null) {
+                        fileList.add(new String[] {manifestListLocation, manifestListLocation.replace(normalizedSource, normalizedTarget)});
+                    }
                 }
             }
 
@@ -172,6 +189,75 @@ public class RewriteTablePathProcedure
             OutputFile outputFile = fileIO.newOutputFile(newMetadataLocation);
             TableMetadata newMetadata = TableMetadataParser.fromJson(newMetadataLocation, targetJson);
             TableMetadataParser.write(newMetadata, outputFile);
+            if (fileList != null) {
+                fileList.add(new String[] {sourceMetadata.metadataFileLocation(), newMetadataLocation});
+            }
+
+            // Step 4 (optional): Write the CSV file list.
+            if (fileList != null) {
+                writeCsvFileList(fileList, fileListLocation, fileIO);
+            }
+        }
+    }
+
+    /**
+     * Reads a manifest Avro file and appends one {@code [source, target]} pair per data/delete
+     * file entry into {@code fileList}. No-op when {@code fileList} is null.
+     */
+    private static void collectDataFilePairs(
+            String manifestPath,
+            FileIO fileIO,
+            String sourcePrefix,
+            String targetPrefix,
+            List<String[]> fileList)
+    {
+        if (fileList == null) {
+            return;
+        }
+        byte[] sourceBytes = readAllBytes(fileIO.newInputFile(manifestPath));
+        try (DataFileReader<GenericRecord> reader = new DataFileReader<>(
+                new SeekableByteArrayInput(sourceBytes),
+                new GenericDatumReader<>())) {
+            for (GenericRecord record : reader) {
+                GenericRecord dataFile = (GenericRecord) record.get("data_file");
+                if (dataFile == null) {
+                    continue;
+                }
+                Schema.Field pathField = dataFile.getSchema().getField("file_path");
+                if (pathField == null) {
+                    continue;
+                }
+                Object value = dataFile.get(pathField.pos());
+                if (value != null) {
+                    String sourcePath = value.toString();
+                    fileList.add(new String[] {sourcePath, sourcePath.replace(sourcePrefix, targetPrefix)});
+                }
+            }
+        }
+        catch (IOException e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to read manifest file for file list: '%s'", manifestPath), e);
+        }
+    }
+
+    /**
+     * Writes a two-column CSV (no header) of {@code source,target} file path pairs to
+     * {@code fileListLocation} using the given {@code fileIO}.
+     */
+    private static void writeCsvFileList(List<String[]> fileList, String fileListLocation, FileIO fileIO)
+    {
+        StringBuilder csv = new StringBuilder();
+        for (String[] pair : fileList) {
+            csv.append(pair[0]).append(',').append(pair[1]).append('\n');
+        }
+        byte[] bytes = csv.toString().getBytes(StandardCharsets.UTF_8);
+        OutputFile outputFile = fileIO.newOutputFile(fileListLocation);
+        try (PositionOutputStream out = outputFile.createOrOverwrite()) {
+            out.write(bytes);
+        }
+        catch (IOException e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to write file list to '%s'", fileListLocation), e);
         }
     }
 
