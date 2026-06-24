@@ -388,6 +388,57 @@ public class TestRewriteTablePathProcedure
         }
     }
 
+    @Test
+    public void testRewriteTablePathPreviousMetadataVersionsRewritten()
+            throws IOException
+    {
+        // Every previous .metadata.json version (tracked in the metadata log) must also be
+        // physically rewritten to staging with content referencing target_prefix.
+        // We do multiple inserts to guarantee several metadata versions exist.
+        String tableName = "rewrite_table_path_prev_metadata";
+        createTable(tableName);
+        try {
+            // Three inserts → at least three metadata versions (v1 from CREATE, v2, v3, v4).
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_prev_meta_target";
+            String stagingLocation = sourcePrefix + "_prev_meta_staging";
+
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+                    TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
+
+            // All .metadata.json files in the staging subtree must exist and reference target_prefix.
+            String stagingLocalPath = stagingLocation.startsWith("file:") ? stagingLocation.substring("file:".length()) : stagingLocation;
+            List<Path> metadataFiles = Files.walk(java.nio.file.Paths.get(stagingLocalPath))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .collect(Collectors.toList());
+
+            assertTrue(metadataFiles.size() >= 2,
+                    "Expected at least 2 rewritten metadata versions under staging, found: " + metadataFiles.size());
+
+            for (Path metaFile : metadataFiles) {
+                String content = new String(Files.readAllBytes(metaFile), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(content.contains(targetPrefix),
+                        format("Metadata file '%s' should reference target_prefix '%s'", metaFile, targetPrefix));
+                // After stripping all targetPrefix occurrences, no residual sourcePrefix should remain.
+                // (A plain contains(sourcePrefix) check would always fail because targetPrefix starts
+                // with sourcePrefix — every targetPrefix hit is also a sourcePrefix hit.)
+                String contentWithoutTarget = content.replace(targetPrefix, "");
+                assertTrue(!contentWithoutTarget.contains(sourcePrefix),
+                        format("Metadata file '%s' should NOT reference source_prefix '%s' outside of target_prefix", metaFile, sourcePrefix));
+            }
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // End-to-end — full migration using the file-list as the sole copy manifest
     // -------------------------------------------------------------------------

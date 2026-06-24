@@ -38,7 +38,6 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -204,19 +203,14 @@ public class RewriteTablePathProcedure
                 }
             }
 
-            // Step 3: Rewrite the metadata JSON — full string replacement covers the table
-            // location, snapshot manifest-list pointers, and any explicit location properties.
-            // The content uses target_prefix throughout; the file is physically written to staging.
-            String sourceJson = TableMetadataParser.toJson(sourceMetadata);
-            String targetJson = sourceJson.replace(normalizedSource, normalizedTarget);
-            String metadataStagingPath = sourceMetadata.metadataFileLocation()
-                    .replace(normalizedSource, normalizedStaging);
-            String metadataFinalPath = sourceMetadata.metadataFileLocation()
-                    .replace(normalizedSource, normalizedTarget);
-            OutputFile outputFile = fileIO.newOutputFile(metadataStagingPath);
-            TableMetadata newMetadata = TableMetadataParser.fromJson(metadataFinalPath, targetJson);
-            TableMetadataParser.write(newMetadata, outputFile);
-            fileList.add(new String[] {metadataStagingPath, metadataFinalPath});
+            // Step 3: Rewrite all metadata JSON files — current and all previous versions
+            // tracked in the metadata log. Full string replacement covers the table location,
+            // snapshot manifest-list pointers, and any explicit location properties.
+            // Each file is physically written to staging; content references target_prefix.
+            for (TableMetadata.MetadataLogEntry previousEntry : sourceMetadata.previousFiles()) {
+                rewriteMetadataJson(previousEntry.file(), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
+            }
+            rewriteMetadataJson(sourceMetadata.metadataFileLocation(), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
 
             // Step 4: Always write the file list to <staging_location>/file-list.
             writeCsvFileList(fileList, normalizedStaging + "/" + FILE_LIST_NAME, fileIO);
@@ -353,6 +347,58 @@ public class RewriteTablePathProcedure
         String metadataFileLocation = sourceMetadata.metadataFileLocation();
         String metadataDir = metadataFileLocation.substring(0, metadataFileLocation.lastIndexOf('/'));
         return metadataDir + "/" + STAGING_DIR_PREFIX + UUID.randomUUID();
+    }
+
+    /**
+     * Reads the metadata JSON at {@code sourceMetadataPath}, rewrites all path strings from
+     * {@code sourcePrefix} to {@code targetPrefix}, and physically writes the raw rewritten
+     * bytes directly to {@code stagingPath}. Writing the raw bytes (rather than re-serialising
+     * through {@code TableMetadataParser.write}) ensures the file exactly mirrors what the
+     * caller requested — in particular, {@code TableMetadataParser.write} would embed the
+     * {@code OutputFile.location()} (i.e. the staging path) as the {@code metadataFileLocation}
+     * field, which would put the staging path back into the content.
+     *
+     * <p>The staging path is computed as:
+     * {@code sourceMetadataPath.replace(sourcePrefix, stagingPrefix)}.
+     * The final target path is:
+     * {@code sourceMetadataPath.replace(sourcePrefix, targetPrefix)}.
+     *
+     * <p>Both paths are appended as a {@code [stagingPath, finalTargetPath]} row to
+     * {@code fileList}.
+     */
+    private static void rewriteMetadataJson(
+            String sourceMetadataPath,
+            FileIO fileIO,
+            String sourcePrefix,
+            String targetPrefix,
+            String stagingPrefix,
+            List<String[]> fileList)
+    {
+        // Read and rewrite the raw JSON text — a single string replace covers all path fields
+        // (table location, metadataFileLocation, snapshot manifest-list pointers,
+        // metadata-log entries, statistics file paths, etc.).
+        byte[] sourceBytes = readAllBytes(fileIO.newInputFile(sourceMetadataPath));
+        String rewrittenJson = new String(sourceBytes, StandardCharsets.UTF_8)
+                .replace(sourcePrefix, targetPrefix);
+
+        // Compute staging path (physical write destination) and final target path (logical).
+        String stagingPath = sourceMetadataPath.replace(sourcePrefix, stagingPrefix);
+        String finalTargetPath = sourceMetadataPath.replace(sourcePrefix, targetPrefix);
+
+        // Write the rewritten bytes directly — bypassing TableMetadataParser.write() which
+        // would re-serialise the object and embed the staging OutputFile.location() as the
+        // metadataFileLocation, thereby reintroducing the staging path into the content.
+        byte[] rewrittenBytes = rewrittenJson.getBytes(StandardCharsets.UTF_8);
+        OutputFile outputFile = fileIO.newOutputFile(stagingPath);
+        try (PositionOutputStream out = outputFile.createOrOverwrite()) {
+            out.write(rewrittenBytes);
+        }
+        catch (IOException e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to write rewritten metadata JSON to '%s'", stagingPath), e);
+        }
+
+        fileList.add(new String[] {stagingPath, finalTargetPath});
     }
 
     private static byte[] readAllBytes(InputFile inputFile)
