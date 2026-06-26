@@ -1493,25 +1493,31 @@ Rewrite Options
 
 The ``options`` parameter accepts a map of option names to values. The following options are available:
 
-========================== ======== =============== ========================================================================
-Option Name                Type     Default         Description
-========================== ======== =============== ========================================================================
-``min-input-files``        integer  5               Minimum number of files in a partition required for rewriting.
-                                                    Partitions with fewer files are skipped. This is a **group filter**
-                                                    that operates at the partition level.
+===================================== ======== =============== ========================================================================
+Option Name                           Type     Default         Description
+===================================== ======== =============== ========================================================================
+``min-input-files``                   integer  5               Minimum number of files in a partition required for rewriting.
+                                                               Partitions with fewer files are skipped. This is a **group filter**
+                                                               that operates at the partition level.
 
-``min-file-size-bytes``    long     0 (disabled)    Files smaller than this threshold (in bytes) are selected for
-                                                    rewriting. This is a **file filter** that operates on individual
-                                                    files.
+``min-file-size-bytes``               long     0 (disabled)    Files smaller than this threshold (in bytes) are selected for
+                                                               rewriting. This is a **file filter** that operates on individual
+                                                               files.
 
-``max-file-size-bytes``    long     0 (disabled)    Files larger than this threshold (in bytes) are selected for
-                                                    rewriting. This is a **file filter** that operates on individual
-                                                    files.
+``max-file-size-bytes``               long     0 (disabled)    Files larger than this threshold (in bytes) are selected for
+                                                               rewriting. This is a **file filter** that operates on individual
+                                                               files.
 
-``rewrite-all``            boolean  false           When set to ``true``, bypasses all filtering (both group and file
-                                                    level) and rewrites all data files in the table or selected
-                                                    partitions. Useful for simple, complete table rewrites.
-========================== ======== =============== ========================================================================
+``rewrite-all``                       boolean  false           When set to ``true``, bypasses all filtering (both group and file
+                                                               level) and rewrites all data files in the table or selected
+                                                               partitions. Useful for simple, complete table rewrites.
+
+``max-concurrent-file-group-rewrites`` integer 0 (unlimited)   Maximum number of partition groups (file groups) to rewrite
+                                                               concurrently. When set to a positive value, limits concurrent
+                                                               partition processing. A value of ``0`` (default) means unlimited
+                                                               concurrency. **Note:** Apache Iceberg's default is 5, but Presto
+                                                               defaults to 0 (unlimited) for maximum parallelism.
+===================================== ======== =============== ========================================================================
 
 **Filter Behavior:**
 
@@ -1599,6 +1605,22 @@ Examples
   Z-order sorting creates a space-filling curve that interleaves bits from multiple columns,
   providing better data locality for queries that filter on multiple dimensions. This is
   particularly useful for tables with multiple commonly-queried columns.
+
+* Limit concurrent partition processing to 2 partitions at a time::
+
+    CALL iceberg.system.rewrite_data_files(
+        schema => 'db',
+        table_name => 'sample',
+        options => map(
+            array['rewrite-all', 'max-concurrent-file-group-rewrites'],
+            array['true', '2']
+        )
+    );
+
+  Presto defaults to unlimited concurrency (0) for maximum parallelism, while Apache
+  Iceberg's default is 5 concurrent file groups. This option controls partition-level
+  batching during split generation and does not directly control worker-level execution
+  concurrency, which is managed by Presto's scheduler.
 
 Rewrite Manifests
 ^^^^^^^^^^^^^^^^^

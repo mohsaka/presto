@@ -1479,6 +1479,170 @@ public class TestRewriteDataFilesProcedure
                 .build();
     }
 
+    @Test
+    public void testMaxConcurrentFileGroupRewrites()
+    {
+        // NOTE: This test validates that the end-to-end procedure completes successfully
+        // and produces the correct final result (correct number of files), but does NOT
+        // verify that the concurrency limiting actually happens during execution.
+        // For tests that verify the split-level concurrency limiting behavior, see
+        // TestRewriteDataFilesIcebergSplitSource.java
+        String tableName = "test_max_concurrent_rewrites";
+        try {
+            // Create a partitioned table with multiple partitions
+            assertUpdate("CREATE TABLE " + tableName + " (id integer, partition_key varchar) WITH (partitioning = ARRAY['partition_key'])");
+
+            // Insert data into 5 different partitions - each INSERT creates one file
+            // Total: 10 inserts = 10 files (2 per partition)
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'p1')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'p1')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, 'p2')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (4, 'p2')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (5, 'p3')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (6, 'p3')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (7, 'p4')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (8, 'p4')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'p5')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (10, 'p5')", 1);
+
+            Table table = loadTable(tableName);
+
+            // Verify initial state: 10 data files (2 per partition)
+            assertHasDataFiles(table.currentSnapshot(), 10);
+
+            // Test 1: Rewrite with max-concurrent-file-group-rewrites=2
+            // This should limit concurrent partition processing to 2 at a time
+            assertUpdate(format(
+                    "CALL system.rewrite_data_files(table_name => '%s', schema => '%s', " +
+                    "options => map(array['rewrite-all', 'max-concurrent-file-group-rewrites'], array['true', '2']))",
+                    tableName, TEST_SCHEMA), 10);
+
+            table.refresh();
+
+            // After rewrite, should have 5 data files (1 per partition)
+            assertHasDataFiles(table.currentSnapshot(), 5);
+            assertHasDeleteFiles(table.currentSnapshot(), 0);
+
+            // Verify data is preserved
+            assertQuery("SELECT count(*) FROM " + tableName, "VALUES 10");
+            assertQuery("SELECT count(DISTINCT partition_key) FROM " + tableName, "VALUES 5");
+
+            // Test 2: Verify invalid values are rejected
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', " +
+                          "options => map(array['max-concurrent-file-group-rewrites'], array['-1']))",
+                          tableName, TEST_SCHEMA),
+                    ".*max-concurrent-file-group-rewrites must be non-negative \\(0 or unset = unlimited\\).*");
+
+            assertQueryFails(
+                    format("CALL system.rewrite_data_files(table_name => '%s', schema => '%s', " +
+                          "options => map(array['max-concurrent-file-group-rewrites'], array['invalid']))",
+                          tableName, TEST_SCHEMA),
+                    ".*max-concurrent-file-group-rewrites must be a valid integer.*");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testMaxConcurrentFileGroupRewritesUnpartitioned()
+    {
+        // NOTE: This test validates the end-to-end outcome only, not split-level concurrency behavior.
+        // See TestRewriteDataFilesIcebergSplitSource.java for split-level concurrency tests.
+        String tableName = "test_max_concurrent_unpartitioned";
+        try {
+            // Create an unpartitioned table
+            assertUpdate("CREATE TABLE " + tableName + " (id integer, value varchar)");
+
+            // Insert data to create multiple files
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(tableName);
+            assertHasDataFiles(table.currentSnapshot(), 3);
+
+            // Rewrite with max-concurrent-file-group-rewrites should work on unpartitioned tables
+            // All files are in one "partition" group, so concurrency limiting has no effect
+            assertUpdate(format(
+                    "CALL system.rewrite_data_files(table_name => '%s', schema => '%s', " +
+                    "options => map(array['rewrite-all', 'max-concurrent-file-group-rewrites'], array['true', '2']))",
+                    tableName, TEST_SCHEMA), 3);
+
+            table.refresh();
+            assertHasDataFiles(table.currentSnapshot(), 1);
+            assertQuery("SELECT count(*) FROM " + tableName, "VALUES 3");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testMaxConcurrentFileGroupRewritesExceedsPartitions()
+    {
+        // NOTE: This test validates the end-to-end outcome only, not split-level concurrency behavior.
+        // See TestRewriteDataFilesIcebergSplitSource.java for split-level concurrency tests.
+        String tableName = "test_max_concurrent_exceeds";
+        try {
+            // Create table with only 2 partitions
+            assertUpdate("CREATE TABLE " + tableName + " (id integer, partition_key varchar) WITH (partitioning = ARRAY['partition_key'])");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'p1')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'p1')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, 'p2')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (4, 'p2')", 1);
+
+            Table table = loadTable(tableName);
+            assertHasDataFiles(table.currentSnapshot(), 4);
+
+            // Set max=10 but only have 2 partitions - should activate all immediately
+            assertUpdate(format(
+                    "CALL system.rewrite_data_files(table_name => '%s', schema => '%s', " +
+                    "options => map(array['rewrite-all', 'max-concurrent-file-group-rewrites'], array['true', '10']))",
+                    tableName, TEST_SCHEMA), 4);
+
+            table.refresh();
+            assertHasDataFiles(table.currentSnapshot(), 2);
+            assertQuery("SELECT count(*) FROM " + tableName, "VALUES 4");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteWithoutConcurrencyLimit()
+    {
+        // NOTE: This test validates the end-to-end outcome only, not split-level concurrency behavior.
+        // See TestRewriteDataFilesIcebergSplitSource.java for split-level concurrency tests.
+        String tableName = "test_no_concurrency_limit";
+        try {
+            // Create partitioned table
+            assertUpdate("CREATE TABLE " + tableName + " (id integer, partition_key varchar) WITH (partitioning = ARRAY['partition_key'])");
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'p1')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'p2')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, 'p3')", 1);
+
+            Table table = loadTable(tableName);
+            assertHasDataFiles(table.currentSnapshot(), 3);
+
+            // Rewrite WITHOUT max-concurrent-file-group-rewrites option
+            // This should use unlimited concurrency (default behavior)
+            assertUpdate(format(
+                    "CALL system.rewrite_data_files(table_name => '%s', schema => '%s', " +
+                    "options => map(array['rewrite-all'], array['true']))",
+                    tableName, TEST_SCHEMA), 3);
+
+            table.refresh();
+            assertHasDataFiles(table.currentSnapshot(), 3);
+            assertQuery("SELECT count(*) FROM " + tableName, "VALUES 3");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
     private Table loadTable(String tableName)
     {
         Catalog catalog = CatalogUtil.loadCatalog(HadoopCatalog.class.getName(), ICEBERG_CATALOG, getProperties(), new Configuration());
