@@ -74,6 +74,7 @@ import static com.facebook.presto.iceberg.IcebergUtil.filterByFile;
 import static com.facebook.presto.iceberg.IcebergUtil.filterByGroup;
 import static com.facebook.presto.iceberg.IcebergUtil.getColumns;
 import static com.facebook.presto.iceberg.IcebergUtil.getFileFormat;
+import static com.facebook.presto.iceberg.IcebergUtil.parseMaxConcurrentFileGroupRewrites;
 import static com.facebook.presto.iceberg.IcebergUtil.parseMaxFileSize;
 import static com.facebook.presto.iceberg.IcebergUtil.parseMinFileSize;
 import static com.facebook.presto.iceberg.IcebergUtil.parseMinInputFiles;
@@ -145,6 +146,7 @@ public class RewriteDataFilesProcedure
                 parseMinFileSize(options);
                 parseMaxFileSize(options);
                 parseRewriteAll(options);
+                parseMaxConcurrentFileGroupRewrites(options);
             }
         }
         return options;

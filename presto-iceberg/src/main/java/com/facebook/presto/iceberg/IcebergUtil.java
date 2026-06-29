@@ -109,6 +109,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -257,6 +258,10 @@ public final class IcebergUtil
     protected static final String VIEW_OWNER = "view_owner";
 
     public static final int DEFAULT_MIN_INPUT_FILES = 5;
+    // Default is 0 (unlimited) for maximum parallelism. Apache Iceberg defaults to 5.
+    public static final int DEFAULT_MAX_CONCURRENT_FILE_GROUP_REWRITES = 0;
+    // Sentinel value indicating unlimited concurrency (no limit on active partitions)
+    public static final int UNLIMITED_CONCURRENCY = 0;
 
     private static final Schema LINEAGE_ONLY_SCHEMA = new Schema(LAST_UPDATED_SEQUENCE_NUMBER);
     private static final InclusiveMetricsEvaluator MATCH_ALL_LINEAGE_EVALUATOR =
@@ -1843,25 +1848,59 @@ public final class IcebergUtil
     }
 
     /**
-     * Filters files by partition-level criteria.
-     * Selects files from partitions that have at least min-input-files files.
-     * If rewrite-all is true, skips filtering and returns all tasks.
+     * Parses and validates the max-concurrent-file-group-rewrites option value.
+     * Returns the parsed integer value, or 0 if the option is not present (meaning unlimited).
+     * A value of 0 means unlimited concurrency (no limiting).
+     * When enabling concurrency limiting, Apache Iceberg recommends a value of 5.
+     * <p>
+     * This option controls partition-level batching during split generation, limiting how many
+     * partition groups have their tasks yielded concurrently. It works in conjunction with other
+     * filters (min-input-files, min-file-size-bytes, etc.) which are applied first to determine
+     * which files are eligible for rewriting.
+     * <p>
+     * Note: This controls split generation batching, not worker-level execution concurrency,
+     * which is managed by Presto's scheduler. For unpartitioned tables, all files are in one group,
+     * so this option has no effect.
+     * <p>
+     * <b>Memory consideration:</b> When enabled, this loads all tasks into memory upfront for
+     * grouping by partition. Use with caution on tables with very large numbers of files.
+     *
+     * @param options rewrite options map
+     * @return maximum concurrent file group rewrites, or 0 if not specified (unlimited)
+     * @throws IllegalArgumentException if the value is invalid
+     */
+    public static int parseMaxConcurrentFileGroupRewrites(Map<String, String> options)
+    {
+        String maxConcurrentStr = options.get("max-concurrent-file-group-rewrites");
+        if (maxConcurrentStr == null) {
+            // Not specified = unlimited
+            return UNLIMITED_CONCURRENCY;
+        }
+        try {
+            int maxConcurrent = Integer.parseInt(maxConcurrentStr);
+            if (maxConcurrent < 0) {
+                throw new IllegalArgumentException(
+                    "max-concurrent-file-group-rewrites must be non-negative (0 or unset = unlimited)");
+            }
+            return maxConcurrent;
+        }
+        catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                String.format("max-concurrent-file-group-rewrites must be a valid integer, got: %s", maxConcurrentStr), e);
+        }
+    }
+
+    /**
+     * Filters and groups files by partition.
+     * Groups all tasks by partition key, then filters out partitions that don't meet min-input-files threshold.
+     * If rewrite-all is true or min-input-files <= 1, returns all tasks grouped by partition.
      *
      * @param tasks all available tasks
      * @param options rewrite options map
-     * @return files from partitions meeting the criteria
+     * @return map of partition key to list of tasks for partitions meeting the criteria
      */
-    public static CloseableIterable<FileScanTask> filterByGroup(CloseableIterable<FileScanTask> tasks, Map<String, String> options)
+    public static Map<String, List<FileScanTask>> filterAndGroupByPartition(CloseableIterable<FileScanTask> tasks, Map<String, String> options)
     {
-        if (parseRewriteAll(options)) {
-            return tasks;
-        }
-
-        int minInputFiles = parseMinInputFiles(options);
-        if (minInputFiles <= 1) {
-            return tasks;
-        }
-
         // Group files by partition
         Map<String, List<FileScanTask>> partitionGroups = new HashMap<>();
         Map<String, Set<String>> partitionFilePathGroups = new HashMap<>();
@@ -1876,12 +1915,43 @@ public final class IcebergUtil
             throw new UncheckedIOException("Failed to scan table file tasks", e);
         }
 
-        // Collect tasks from partitions that meet the threshold
-        List<FileScanTask> filteredTasks = new ArrayList<>();
+        // If rewrite-all or min-input-files <= 1, return all partitions
+        if (parseRewriteAll(options)) {
+            return partitionGroups;
+        }
+
+        int minInputFiles = parseMinInputFiles(options);
+        if (minInputFiles <= 1) {
+            return partitionGroups;
+        }
+
+        // Filter to partitions that meet the threshold
+        Map<String, List<FileScanTask>> filteredPartitions = new LinkedHashMap<>();
         for (String partitionKey : partitionFilePathGroups.keySet()) {
             if (partitionFilePathGroups.get(partitionKey).size() >= minInputFiles) {
-                filteredTasks.addAll(partitionGroups.get(partitionKey));
+                filteredPartitions.put(partitionKey, partitionGroups.get(partitionKey));
             }
+        }
+        return filteredPartitions;
+    }
+
+    /**
+     * Filters files by partition-level criteria.
+     * Selects files from partitions that have at least min-input-files files.
+     * If rewrite-all is true, skips filtering and returns all tasks.
+     *
+     * @param tasks all available tasks
+     * @param options rewrite options map
+     * @return files from partitions meeting the criteria
+     */
+    public static CloseableIterable<FileScanTask> filterByGroup(CloseableIterable<FileScanTask> tasks, Map<String, String> options)
+    {
+        Map<String, List<FileScanTask>> partitionGroups = filterAndGroupByPartition(tasks, options);
+
+        // Flatten back to a list
+        List<FileScanTask> filteredTasks = new ArrayList<>();
+        for (List<FileScanTask> partitionTasks : partitionGroups.values()) {
+            filteredTasks.addAll(partitionTasks);
         }
         return CloseableIterable.withNoopClose(filteredTasks);
     }
