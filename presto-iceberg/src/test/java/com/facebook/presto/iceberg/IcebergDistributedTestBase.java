@@ -1899,7 +1899,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'DDDD')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'FFFF')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['id'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 1);
             String filePath = String.valueOf(result.getOnlyValue());
@@ -1922,7 +1922,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'AAAA')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'BBBB')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['id'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 3);
             for (Object filePath : result.getOnlyColumnAsSet()) {
@@ -1946,7 +1946,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'DDDD')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'FFFF')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['id DESC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 1);
             String filePath = String.valueOf(result.getOnlyValue());
@@ -1969,7 +1969,7 @@ public abstract class IcebergDistributedTestBase
             assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'BBBB'), (4,'AAAA')", 2);
             assertUpdate("INSERT INTO " + tableName + " VALUES (9, 'CCCC'), (11,'BBBB')", 2);
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['id DESC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 3);
             for (Object filePath : result.getOnlyColumnAsSet()) {
@@ -1996,7 +1996,7 @@ public abstract class IcebergDistributedTestBase
                 assertTrue(isFileSorted(String.valueOf(filePath), "id", "DESC"));
             }
 
-            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC', 'emp_name ASC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
+            assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['id DESC', 'emp_name ASC'], options => map(array['rewrite-all'], array['true']))", schema, tableName), 7);
             MaterializedResult result = computeActual("SELECT file_path from \"" + tableName + "$files\"");
             assertEquals(result.getOnlyColumnAsSet().size(), 1);
             String filePath = String.valueOf(result.getOnlyValue());
@@ -2022,10 +2022,10 @@ public abstract class IcebergDistributedTestBase
                 assertTrue(isFileSorted(String.valueOf(filePath), "id", "ASC"));
             }
 
-            assertQueryFails(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['id DESC'])", schema, tableName),
+            assertQueryFails(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['id DESC'])", schema, tableName),
                     "Specified sort order is incompatible with the target table's internal sort order");
 
-            assertQueryFails(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', sorted_by => ARRAY['emp_name ASC', 'id ASC'])", schema, tableName),
+            assertQueryFails(format("CALL system.rewrite_data_files(schema => '%s', table_name => '%s', strategy => 'sort', sorted_by => ARRAY['emp_name ASC', 'id ASC'])", schema, tableName),
                     "Specified sort order is incompatible with the target table's internal sort order");
         }
         finally {
@@ -2052,6 +2052,7 @@ public abstract class IcebergDistributedTestBase
                     "CALL system.rewrite_data_files(" +
                             "schema => '%s', " +
                             "table_name => '%s', " +
+                            "strategy => 'sort', " +
                             "filter => 'emp_name = ''AAAAA''', " +
                             "sorted_by => ARRAY['id desc'], " +
                             "options => map(array['rewrite-all'], array['true']))",
@@ -2062,6 +2063,7 @@ public abstract class IcebergDistributedTestBase
                     "CALL system.rewrite_data_files(" +
                             "schema => '%s', " +
                             "table_name => '%s', " +
+                            "strategy => 'sort', " +
                             "filter => 'emp_name = ''BBBBB''', " +
                             "sorted_by => ARRAY['id asc'], " +
                             "options => map(array['rewrite-all'], array['true']))",
