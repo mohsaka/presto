@@ -1710,6 +1710,16 @@ Argument Name          Required   Type            Description
                                                   a parent directory, ``target_prefix`` should also be a
                                                   parent directory, not the table directory)
 
+``start_version``      No         string          First metadata file to rewrite (filename or full path).
+                                                  Iceberg supports two filename formats:
+                                                  sequential (``v2.metadata.json``) and UUID-based
+                                                  (``00002-<uuid>.metadata.json``). Both are accepted.
+                                                  Defaults to the oldest entry in the metadata log.
+
+``end_version``        No         string          Last metadata file to rewrite (filename or full path).
+                                                  Uses the same format rules as ``start_version``.
+                                                  Defaults to the current (newest) metadata version.
+
 ``staging_location``   No         string          Directory where rewritten metadata files are physically
                                                   written. Content inside each file references
                                                   ``target_prefix``, so files are ready to use once
@@ -1777,9 +1787,16 @@ Argument Name          Required   Type            Description
 
 .. note::
 
-    Every metadata version the table still tracks is rewritten. Manifest list and manifest Avro
-    files are rewritten for all snapshots reachable from that metadata, because those files are
-    shared across versions and must be internally consistent.
+    Only metadata versions within ``[start_version, end_version]`` are rewritten. Manifest list
+    and manifest Avro files are rewritten for all snapshots reachable from the in-range metadata,
+    because those files are shared across versions and must be internally consistent.
+
+.. note::
+
+    If both ``start_version`` and ``end_version`` are omitted, all metadata versions are rewritten
+    (equivalent to the full-table migration case). Supplying only ``start_version`` rewrites from
+    that version to the current; supplying only ``end_version`` rewrites from the oldest to that
+    version.
 
 Typical workflow::
 
@@ -1804,18 +1821,20 @@ Typical workflow::
 
 Examples:
 
-* Rewrite the table: ::
+* Rewrite the full table (all metadata versions): ::
 
     CALL iceberg.system.rewrite_table_path('schema_name', 'table_name',
         's3a://old-bucket/warehouse', 's3a://new-bucket/warehouse');
 
-* Rewrite with an explicit staging directory: ::
+* Rewrite with an explicit staging directory and version window: ::
 
     CALL iceberg.system.rewrite_table_path(
         schema           => 'schema_name',
         table_name       => 'table_name',
         source_prefix    => 's3a://bucketOne/prefix/db.db/my_table',
         target_prefix    => 's3a://bucketTwo/prefix/db.db/my_table',
+        start_version    => 'v2.metadata.json',
+        end_version      => 'v20.metadata.json',
         staging_location => 's3a://bucketStaging/my_table'
     );
 
@@ -1827,6 +1846,16 @@ Examples:
         source_prefix    => 's3a://bucketOne/prefix',
         target_prefix    => 's3a://bucketTwo/prefix',
         create_file_list => false
+    );
+
+* Rewrite from a specific version to the current (skip old archived versions): ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema        => 'schema_name',
+        table_name    => 'table_name',
+        source_prefix => 's3a://bucketOne/prefix',
+        target_prefix => 's3a://bucketTwo/prefix',
+        start_version => '00010-575ea024-3812-4e69-ac1e-9c8f284442e2.metadata.json'
     );
 
 .. rubric:: Presto C++ Support

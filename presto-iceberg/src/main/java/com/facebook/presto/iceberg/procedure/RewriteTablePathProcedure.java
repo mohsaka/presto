@@ -42,6 +42,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StatisticsFile;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -85,9 +86,16 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
  * ready to use once moved from staging to the final target. When omitted, files are written
  * to a default staging directory (UUID-named under the source metadata directory).
  *
- * <p>Every metadata JSON file the table still tracks is rewritten: all {@code previousFiles()}
- * entries plus the current metadata file. All data files reachable from the current metadata are
- * listed in the file list.
+ * <p>{@code start_version} and {@code end_version} optionally bound the set of metadata JSON
+ * files that are rewritten. Each value may be a bare filename or a full path. Iceberg uses two
+ * filename schemes depending on the catalog: sequential ({@code v2.metadata.json}) and
+ * UUID-based ({@code 00002-&lt;uuid&gt;.metadata.json}). Both are matched by filename suffix.
+ * The ordered list is: all {@code previousFiles()} entries (oldest first)
+ * followed by the current metadata file. Only metadata JSON files whose position falls within
+ * {@code [start_version, end_version]} (inclusive) are rewritten.
+ *
+ * <p>Manifest lists, manifests, and data files are taken from {@code end_version}, so the
+ * rewritten metadata is internally consistent at that version.
  *
  * <p>Rewrite scope per file type:
  * <ul>
@@ -121,6 +129,8 @@ public class RewriteTablePathProcedure
             String.class,   // tableName
             String.class,   // sourcePrefix
             String.class,   // targetPrefix
+            String.class,   // startVersion
+            String.class,   // endVersion
             String.class,   // stagingLocation
             boolean.class); // createFileList
 
@@ -150,6 +160,8 @@ public class RewriteTablePathProcedure
                         new Argument("table_name", VARCHAR),
                         new Argument("source_prefix", VARCHAR),
                         new Argument("target_prefix", VARCHAR),
+                        new Argument("start_version", VARCHAR, false, null),
+                        new Argument("end_version", VARCHAR, false, null),
                         new Argument("staging_location", VARCHAR, false, null),
                         new Argument("create_file_list", BOOLEAN, false, true)),
                 REWRITE_TABLE_PATH.bindTo(this));
@@ -161,6 +173,8 @@ public class RewriteTablePathProcedure
             String tableName,
             String sourcePrefix,
             String targetPrefix,
+            String startVersion,
+            String endVersion,
             String stagingLocation,
             boolean createFileList)
     {
@@ -217,18 +231,38 @@ public class RewriteTablePathProcedure
             // [sourcePath, finalTargetPath] for data files. Written to <staging>/file-list.
             List<String[]> fileList = new ArrayList<>();
 
-            // Collect every metadata JSON file the table still tracks, oldest → newest.
+            // Determine the metadata version range [start_version, end_version].
+            // Build the full ordered list (oldest → newest) then slice to the requested window.
             List<String> allMetadataFiles = new ArrayList<>();
             for (TableMetadata.MetadataLogEntry entry : currentMetadata.previousFiles()) {
                 allMetadataFiles.add(entry.file());
             }
             allMetadataFiles.add(currentMetadata.metadataFileLocation());
 
-            // Step 1: Rewrite each unique manifest Avro file.
+            int startIdx = 0;
+            int endIdx = allMetadataFiles.size() - 1;
+
+            if (startVersion != null) {
+                startIdx = findMetadataVersionIndex(allMetadataFiles, startVersion);
+            }
+            if (endVersion != null) {
+                endIdx = findMetadataVersionIndex(allMetadataFiles, endVersion);
+            }
+            if (startIdx > endIdx) {
+                throw new PrestoException(ICEBERG_INVALID_METADATA, format(
+                        "start_version '%s' is chronologically after end_version '%s'",
+                        startVersion, endVersion));
+            }
+
+            // Only snapshots referenced by end_version should have their manifests and data files
+            // included in the migration (matching Iceberg Spark behavior).
+            TableMetadata endMetadata = readMetadata(allMetadataFiles.get(endIdx), fileIO);
+
+            // Step 1: Rewrite each unique manifest Avro file from end metadata.
             // Manifests are shared across snapshots so we deduplicate by path.
             // Data file pairs are collected during the manifest rewrite (single I/O pass).
             Set<String> rewrittenManifests = new HashSet<>();
-            for (Snapshot snapshot : currentMetadata.snapshots()) {
+            for (Snapshot snapshot : endMetadata.snapshots()) {
                 for (ManifestFile manifest : snapshot.allManifests(fileIO)) {
                     if (rewrittenManifests.add(manifest.path())) {
                         if (!manifest.path().startsWith(normalizedSource)) {
@@ -252,10 +286,11 @@ public class RewriteTablePathProcedure
                 }
             }
 
-            // Step 2: Rewrite manifest list Avro files. Manifest lists are tied to specific
-            // snapshots and must all be present for the rewritten metadata to be valid.
+            // Step 2: Rewrite manifest list Avro files for all snapshots in end metadata.
+            // Manifest lists are tied to specific snapshots and must all be present for the
+            // end version to be valid.
             Set<String> rewrittenManifestLists = new HashSet<>();
-            for (Snapshot snapshot : currentMetadata.snapshots()) {
+            for (Snapshot snapshot : endMetadata.snapshots()) {
                 String manifestListPath = snapshot.manifestListLocation();
                 if (manifestListPath != null && rewrittenManifestLists.add(manifestListPath)) {
                     if (!manifestListPath.startsWith(normalizedSource)) {
@@ -277,8 +312,8 @@ public class RewriteTablePathProcedure
             // stats files need to be included in the copy manifest.
             // Note: Statistics files are rarely generated in practice (requires explicit ANALYZE
             // or external tools like Spark), but we handle them for completeness.
-            if (currentMetadata.statisticsFiles() != null) {
-                for (StatisticsFile statsFile : currentMetadata.statisticsFiles()) {
+            if (endMetadata.statisticsFiles() != null) {
+                for (StatisticsFile statsFile : endMetadata.statisticsFiles()) {
                     String statsPath = statsFile.path();
                     if (statsPath.startsWith(normalizedSource)) {
                         String statsTargetPath = statsPath.replace(normalizedSource, normalizedTarget);
@@ -287,9 +322,9 @@ public class RewriteTablePathProcedure
                 }
             }
 
-            // Step 4: Rewrite every metadata JSON file the table tracks.
-            for (String metadataFile : allMetadataFiles) {
-                rewriteMetadataJson(metadataFile, fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
+            // Step 4: Rewrite metadata JSON files in the version range [start_version, end_version].
+            for (int i = startIdx; i <= endIdx; i++) {
+                rewriteMetadataJson(allMetadataFiles.get(i), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
             }
 
             // Step 5: Optionally write the file list to <staging_location>/file-list.
@@ -447,6 +482,27 @@ public class RewriteTablePathProcedure
     }
 
     /**
+     * Finds the position of {@code version} in {@code metadataFiles} (ordered oldest → newest).
+     * {@code version} may be a bare filename or a full path. Iceberg uses two filename schemes:
+     * sequential (e.g. {@code v2.metadata.json}) and UUID-based (e.g.
+     * {@code 00002-575ea024-3812-4e69-ac1e-9c8f284442e2.metadata.json}). Both are matched by
+     * testing whether the stored path equals {@code version} or ends with {@code "/" + version}.
+     * Throws {@link PrestoException} if no match is found.
+     */
+    private static int findMetadataVersionIndex(List<String> metadataFiles, String version)
+    {
+        for (int i = 0; i < metadataFiles.size(); i++) {
+            String path = metadataFiles.get(i);
+            // Match either the full path or just the filename component.
+            if (path.equals(version) || path.endsWith("/" + version)) {
+                return i;
+            }
+        }
+        throw new PrestoException(ICEBERG_INVALID_METADATA, format(
+                "Metadata version '%s' not found in table's metadata log", version));
+    }
+
+    /**
      * Returns the default staging directory: a UUID-named subdirectory under the source table's
      * metadata directory, matching the Iceberg spec default staging behaviour.
      *
@@ -526,6 +582,21 @@ public class RewriteTablePathProcedure
         }
 
         fileList.add(new String[] {stagingPath, finalTargetPath});
+    }
+
+    /**
+     * Reads and parses a metadata JSON file from the given path using the Iceberg
+     * TableMetadataParser. Returns the parsed TableMetadata object.
+     */
+    private static TableMetadata readMetadata(String metadataPath, FileIO fileIO)
+    {
+        try {
+            return TableMetadataParser.read(fileIO, metadataPath);
+        }
+        catch (Exception e) {
+            throw new PrestoException(ICEBERG_FILESYSTEM_ERROR,
+                    format("Failed to read metadata file '%s'", metadataPath), e);
+        }
     }
 
     private static byte[] readAllBytes(InputFile inputFile)

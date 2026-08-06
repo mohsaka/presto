@@ -125,7 +125,7 @@ public class TestRewriteTablePathProcedure
             String targetPrefix = sourcePrefix + "_migrated";
             String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
 
             // Catalog entry must be unchanged — the procedure does not update it.
@@ -198,7 +198,7 @@ public class TestRewriteTablePathProcedure
             String targetPrefix = sourcePrefix + "_snap_migrated";
             String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
 
             TableMetadata newMetadata = readLatestTargetMetadata(expectedNewLocation);
@@ -233,7 +233,7 @@ public class TestRewriteTablePathProcedure
             String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
             String manifestListLocation = table.currentSnapshot().manifestListLocation();
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
 
             // File must physically exist at the target path.
@@ -278,7 +278,7 @@ public class TestRewriteTablePathProcedure
                     .map(ManifestFile::path)
                     .collect(Collectors.toList());
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, targetPrefix));
 
             // Each manifest Avro must physically exist at the target path.
@@ -319,7 +319,7 @@ public class TestRewriteTablePathProcedure
             String stagingLocation = sourcePrefix + "_staging";
             String expectedNewLocation = targetPrefix + originalLocation.substring(sourcePrefix.length());
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Catalog must be unchanged.
@@ -357,7 +357,7 @@ public class TestRewriteTablePathProcedure
             String targetPrefix = sourcePrefix + "_fl_migrated";
             String stagingLocation = sourcePrefix + "_fl_staging";
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
 
             String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
@@ -455,7 +455,7 @@ public class TestRewriteTablePathProcedure
             String targetPrefix = sourcePrefix + "_prev_meta_target";
             String stagingLocation = sourcePrefix + "_prev_meta_staging";
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
 
             // All .metadata.json files in the staging subtree must exist and reference target_prefix.
@@ -487,6 +487,413 @@ public class TestRewriteTablePathProcedure
     // -------------------------------------------------------------------------
     // Version range — start_version / end_version bound the metadata JSON window
     // -------------------------------------------------------------------------
+
+    @Test
+    public void testRewriteTablePathVersionRangeFiltersMetadata()
+            throws IOException
+    {
+        // start=v2, end=v3 (of 4 total): only metadata v2 and v3 are rewritten; v1 and v4
+        // are absent. Data files come from end_version, so both files written before v3 are
+        // included. This test validates metadata windowing and data file scoping.
+        String sourceName = "rewrite_table_path_version_range";
+        createTable(sourceName);
+        try {
+            // CREATE → v1, three inserts → v2, v3, v4.
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_vr_target";
+            String stagingLocation = sourcePrefix + "_vr_staging";
+
+            // Collect all metadata filenames in chronological order.
+            TableMetadata sourceMetadata = ((BaseTable) table).operations().current();
+            List<String> allVersions = new ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 4,
+                    "Expected at least 4 metadata versions, got: " + allVersions);
+
+            String startVersion = allVersions.get(1);                    // v2 — after first insert
+            String endVersion = allVersions.get(allVersions.size() - 2); // v3 — after second insert
+
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path(schema => '%s', table_name => '%s', source_prefix => '%s', target_prefix => '%s', start_version => '%s', end_version => '%s', staging_location => '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, startVersion, endVersion, stagingLocation));
+
+            // Verify only the windowed metadata versions appear in staging.
+            String stagingLocalPath = stagingLocation.startsWith("file:") ? stagingLocation.substring("file:".length()) : stagingLocation;
+            List<String> rewrittenNames = Files.walk(Paths.get(stagingLocalPath))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .collect(Collectors.toList());
+
+            assertTrue(rewrittenNames.contains(startVersion),
+                    "start_version '" + startVersion + "' should be rewritten");
+            assertTrue(rewrittenNames.contains(endVersion),
+                    "end_version '" + endVersion + "' should be rewritten");
+            assertTrue(!rewrittenNames.contains(allVersions.get(0)),
+                    "Version before start_version '" + allVersions.get(0) + "' must NOT be rewritten");
+            assertTrue(!rewrittenNames.contains(allVersions.get(allVersions.size() - 1)),
+                    "Version after end_version '" + allVersions.get(allVersions.size() - 1) + "' must NOT be rewritten");
+
+            // Verify data files are scoped to end_version: end=v3 (after insert 2) references
+            // 2 data files, so the third insert's file must be absent.
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(Paths.get(localPath));
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+            assertEquals(dataFileCount, 2,
+                    "Expected 2 data files reachable from end_version=v3");
+        }
+        finally {
+            dropTable(sourceName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathOnlyStartVersion()
+            throws IOException
+    {
+        // Only start_version provided: rewrites from start_version to the current metadata
+        // version inclusive. This test validates metadata windowing only, not end-to-end query.
+        String sourceName = "rewrite_table_path_only_start";
+        createTable(sourceName);
+        try {
+            // CREATE → v1, three inserts → v2, v3, v4.
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_os_target";
+            String stagingLocation = sourcePrefix + "_os_staging";
+
+            TableMetadata sourceMetadata = ((BaseTable) table).operations().current();
+            List<String> allVersions = new ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 4, "Expected at least 4 metadata versions");
+
+            // Start from the second version — v1 must be absent, v2 through current must appear.
+            String startVersion = allVersions.get(1);
+
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s', null, '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, startVersion, stagingLocation));
+
+            // Verify windowed metadata presence.
+            String stagingLocalPath = stagingLocation.startsWith("file:") ? stagingLocation.substring("file:".length()) : stagingLocation;
+            List<String> rewrittenNames = Files.walk(Paths.get(stagingLocalPath))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .collect(Collectors.toList());
+
+            for (int i = 1; i < allVersions.size(); i++) {
+                assertTrue(rewrittenNames.contains(allVersions.get(i)),
+                        "Version '" + allVersions.get(i) + "' should be rewritten (>= start_version)");
+            }
+            assertTrue(!rewrittenNames.contains(allVersions.get(0)),
+                    "Version '" + allVersions.get(0) + "' before start_version must NOT be rewritten");
+
+            // end_version defaults to the current version (v4, after the 3rd insert), so all
+            // 3 data files are included.
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(Paths.get(localPath));
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+            assertEquals(dataFileCount, 3,
+                    "Expected all 3 data files reachable from the current metadata version");
+        }
+        finally {
+            dropTable(sourceName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathOnlyEndVersion()
+            throws IOException
+    {
+        // Only end_version provided: rewrites from the oldest metadata version up to
+        // end_version inclusive. Registering at end_version's target path produces a table
+        // at that snapshot's state — rows (1,'a') and (2,'b') only, since end=v3 (pre-v4).
+        String sourceName = "rewrite_table_path_only_end";
+        String targetName = "rewrite_table_path_only_end_tgt";
+        createTable(sourceName);
+        try {
+            // CREATE → v1, three inserts → v2, v3, v4.
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_oe_target";
+            String stagingLocation = sourcePrefix + "_oe_staging";
+
+            TableMetadata sourceMetadata = ((BaseTable) table).operations().current();
+            List<String> allVersions = new ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 3, "Expected at least 3 metadata versions");
+
+            // End at the second-to-last version — the current (newest) must be absent.
+            String endVersion = allVersions.get(allVersions.size() - 2);
+
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, endVersion, stagingLocation));
+
+            // Verify windowed metadata presence.
+            String stagingLocalPath = stagingLocation.startsWith("file:") ? stagingLocation.substring("file:".length()) : stagingLocation;
+            List<String> rewrittenNames = Files.walk(Paths.get(stagingLocalPath))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .collect(Collectors.toList());
+
+            for (int i = 0; i < allVersions.size() - 1; i++) {
+                assertTrue(rewrittenNames.contains(allVersions.get(i)),
+                        "Version '" + allVersions.get(i) + "' should be rewritten (<= end_version)");
+            }
+            assertTrue(!rewrittenNames.contains(allVersions.get(allVersions.size() - 1)),
+                    "Current version '" + allVersions.get(allVersions.size() - 1) + "' after end_version must NOT be rewritten");
+
+            // Copy from file-list and register at end_version's target path.
+            // end=v3 → rows from the first two inserts are visible: (1,'a') and (2,'b').
+            copyFromFileList(stagingLocation);
+            String endVersionTargetPath = targetPrefix + originalLocation.substring(sourcePrefix.length())
+                    + "/metadata/" + endVersion;
+            String targetMetadataDir = endVersionTargetPath.substring(0, endVersionTargetPath.lastIndexOf('/'));
+            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
+                    TEST_SCHEMA, targetName, targetMetadataDir));
+            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
+                    "VALUES (1, 'a'), (2, 'b')");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathVersionRangeValidation()
+    {
+        // Error cases: unknown version, and start chronologically after end.
+        String tableName = "rewrite_table_path_version_range_err";
+        createTable(tableName);
+        try {
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'b')", 1);
+
+            Table table = loadTable(tableName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_vre_target";
+            String stagingLocation = sourcePrefix + "_vre_staging";
+
+            // Unknown version name.
+            assertQueryFails(
+                    format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', 'nonexistent.metadata.json', null, '%s')",
+                            TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation),
+                    "Metadata version 'nonexistent.metadata.json' not found in table's metadata log");
+
+            // start_version after end_version (swap them).
+            TableMetadata sourceMetadata = ((BaseTable) table).operations().current();
+            List<String> allVersions = new ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 2, "Need at least 2 versions");
+            String first = allVersions.get(0);
+            String last = allVersions.get(allVersions.size() - 1);
+
+            assertQueryFails(
+                    format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s', '%s', '%s')",
+                            TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, last, first, stagingLocation),
+                    "start_version '.*' is chronologically after end_version '.*'");
+        }
+        finally {
+            dropTable(tableName);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathVersionMatchByFullPath()
+            throws IOException
+    {
+        // Verifies that start_version and end_version are matched correctly when the caller
+        // supplies the full path (e.g. file:/…/metadata/v2.metadata.json) rather than just
+        // the bare filename. Both forms must select the same version.
+        String sourceName = "rewrite_table_path_full_path_match";
+        String targetNameFilename = "rewrite_table_path_full_path_filename_tgt";
+        String targetNameFullPath = "rewrite_table_path_full_path_fullpath_tgt";
+        createTable(sourceName);
+        try {
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+
+            TableMetadata sourceMetadata = ((BaseTable) table).operations().current();
+            // Build both the bare filename and the full path for the second-to-last version.
+            List<String> allFullPaths = new ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allFullPaths.add(e.file()));
+            allFullPaths.add(sourceMetadata.metadataFileLocation());
+
+            assertTrue(allFullPaths.size() >= 3, "Expected at least 3 metadata versions");
+
+            // Pick the same version expressed two different ways.
+            String fullPath = allFullPaths.get(allFullPaths.size() - 2);         // e.g. file:/…/v3.metadata.json
+            String bareFilename = fullPath.substring(fullPath.lastIndexOf('/') + 1); // e.g. v3.metadata.json
+
+            // Run once with the bare filename.
+            String stagingFilename = sourcePrefix + "_fp_staging_filename";
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, sourcePrefix + "_fp_target_filename",
+                    bareFilename, stagingFilename));
+
+            // Run again with the full path.
+            String stagingFullPath = sourcePrefix + "_fp_staging_fullpath";
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, '%s', '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, sourcePrefix + "_fp_target_fullpath",
+                    fullPath, stagingFullPath));
+
+            // Both staging directories must contain the same set of metadata filenames —
+            // confirming that the bare filename and the full path resolved to the same version.
+            String stagingFilenameLocal = stagingFilename.startsWith("file:") ? stagingFilename.substring("file:".length()) : stagingFilename;
+            String stagingFullPathLocal = stagingFullPath.startsWith("file:") ? stagingFullPath.substring("file:".length()) : stagingFullPath;
+
+            List<String> filenameResults = Files.walk(Paths.get(stagingFilenameLocal))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            List<String> fullPathResults = Files.walk(Paths.get(stagingFullPathLocal))
+                    .filter(p -> p.getFileName().toString().endsWith(".metadata.json"))
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            assertEquals(fullPathResults, filenameResults,
+                    "Full-path and bare-filename end_version must resolve to the same metadata window");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetNameFilename);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetNameFullPath);
+        }
+    }
+
+    @Test
+    public void testRewriteTablePathEndVersionFiltersDataFiles()
+            throws IOException
+    {
+        // Validates that when end_version is specified, only data files from snapshots
+        // referenced by metadata versions [start, end] are included in the file list.
+        // This test creates 3 inserts (3 data files, 3 snapshots), then rewrites with
+        // end_version=v3 (after 2nd insert). The file-list should contain only 2 data
+        // files, not all 3.
+        String sourceName = "rewrite_table_path_end_version_filters_data";
+        String targetName = "rewrite_table_path_end_version_filters_data_tgt";
+        createTable(sourceName);
+        try {
+            // CREATE → v1 (no data), three inserts → v2, v3, v4 (each with 1 data file).
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (1, 'a')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (2, 'b')", 1);
+            assertUpdate("INSERT INTO " + sourceName + " VALUES (3, 'c')", 1);
+
+            Table table = loadTable(sourceName);
+            table.refresh();
+            String originalLocation = table.location();
+            String sourcePrefix = originalLocation.substring(0, originalLocation.lastIndexOf('/'));
+            String targetPrefix = sourcePrefix + "_efdf_target";
+            String stagingLocation = sourcePrefix + "_efdf_staging";
+
+            // Collect all metadata filenames in chronological order.
+            TableMetadata sourceMetadata = ((BaseTable) table).operations().current();
+            List<String> allVersions = new ArrayList<>();
+            sourceMetadata.previousFiles().forEach(e -> allVersions.add(
+                    e.file().substring(e.file().lastIndexOf('/') + 1)));
+            allVersions.add(sourceMetadata.metadataFileLocation().substring(
+                    sourceMetadata.metadataFileLocation().lastIndexOf('/') + 1));
+
+            assertTrue(allVersions.size() >= 4,
+                    "Expected at least 4 metadata versions, got: " + allVersions);
+
+            // Set end_version to v3 — after the 2nd insert (2 data files) but before 3rd (3 data files).
+            String endVersion = allVersions.get(allVersions.size() - 2); // v3 — second-to-last
+
+            // Rewrite with end_version=v3.
+            assertUpdate(format(
+                    "CALL system.rewrite_table_path(schema => '%s', table_name => '%s', source_prefix => '%s', target_prefix => '%s', end_version => '%s', staging_location => '%s')",
+                    TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, endVersion, stagingLocation));
+
+            // Read the file-list and count data files (.parquet).
+            String fileListPath = stagingLocation + "/" + RewriteTablePathProcedure.FILE_LIST_NAME;
+            String localPath = fileListPath.startsWith("file:") ? fileListPath.substring("file:".length()) : fileListPath;
+            List<String> lines = Files.readAllLines(Paths.get(localPath));
+
+            long dataFileCount = lines.stream()
+                    .map(l -> l.split(",", 2)[0])  // source column
+                    .filter(p -> p.endsWith(".parquet"))
+                    .count();
+
+            // CRITICAL: Should be 2 data files (from first two inserts), NOT 3.
+            // This validates the fix — before the fix, it would include all 3 data files.
+            assertEquals(dataFileCount, 2,
+                    format("Expected exactly 2 data files in file-list when end_version=v3, but found %d", dataFileCount));
+
+            // Verify the migration is valid by copying files and registering the table.
+            copyFromFileList(stagingLocation);
+            String endVersionTargetPath = targetPrefix + originalLocation.substring(sourcePrefix.length())
+                    + "/metadata/" + endVersion;
+            String targetMetadataDir = endVersionTargetPath.substring(0, endVersionTargetPath.lastIndexOf('/'));
+            assertUpdate(format("CALL system.register_table('%s', '%s', '%s')",
+                    TEST_SCHEMA, targetName, targetMetadataDir));
+
+            // Query should return only the first 2 rows (matching v3 state).
+            assertQuery(format("SELECT * FROM %s.%s ORDER BY id", TEST_SCHEMA, targetName),
+                    "VALUES (1, 'a'), (2, 'b')");
+        }
+        finally {
+            dropTable(sourceName);
+            assertQuerySucceeds("DROP TABLE IF EXISTS " + TEST_SCHEMA + "." + targetName);
+        }
+    }
 
     // -------------------------------------------------------------------------
     // End-to-end — full migration using the file-list as the sole copy manifest
@@ -582,7 +989,7 @@ public class TestRewriteTablePathProcedure
             String stagingLocation = sourcePrefix + "_e2e_staging";
 
             // Step 1: rewrite with an explicit staging_location.
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Step 2: file-list is at the known path <staging_location>/file-list.
@@ -639,7 +1046,7 @@ public class TestRewriteTablePathProcedure
             String targetPrefix = sourcePrefix + "_default_staging_target";
 
             // Call WITHOUT staging_location parameter (uses default)
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, true)",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, null, true)",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix));
 
             // Default staging dir should be under source metadata directory with STAGING_DIR_PREFIX
@@ -699,7 +1106,7 @@ public class TestRewriteTablePathProcedure
             String targetPrefix = sourcePrefix + "_with_deletes";
             String stagingLocation = sourcePrefix + "_deletes_staging";
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s', true)",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s', true)",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Verify file list includes delete files
@@ -790,7 +1197,7 @@ public class TestRewriteTablePathProcedure
             sourceReader.close();
 
             // Rewrite
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Read metadata from rewritten manifest
@@ -845,7 +1252,7 @@ public class TestRewriteTablePathProcedure
             }
             String stagingLocation = sourcePrefix.substring(0, sourcePrefix.lastIndexOf('/')) + "/staging" + sourcePrefix.substring(sourcePrefix.lastIndexOf('/'));
 
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, tableName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Read rewritten metadata and verify no source prefix remains
@@ -895,7 +1302,7 @@ public class TestRewriteTablePathProcedure
             assertEquals(sourceMeta.formatVersion(), 2, "Source should be format version 2");
 
             // Rewrite metadata
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Copy all files per file-list
@@ -964,7 +1371,7 @@ public class TestRewriteTablePathProcedure
             assertEquals(sourceMeta.formatVersion(), 3, "Source should be format version 3");
 
             // Rewrite metadata
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Copy all files per file-list
@@ -1078,7 +1485,7 @@ public class TestRewriteTablePathProcedure
             assertEquals(sourceMeta.formatVersion(), 2, "Source should be format version 2");
 
             // Rewrite metadata
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Copy all files per file-list
@@ -1218,7 +1625,7 @@ public class TestRewriteTablePathProcedure
             assertEquals(sourceMeta.formatVersion(), 3, "Source should be format version 3");
 
             // Rewrite metadata
-            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', '%s')",
+            assertUpdate(format("CALL system.rewrite_table_path('%s', '%s', '%s', '%s', null, null, '%s')",
                     TEST_SCHEMA, sourceName, sourcePrefix, targetPrefix, stagingLocation));
 
             // Copy all files per file-list
