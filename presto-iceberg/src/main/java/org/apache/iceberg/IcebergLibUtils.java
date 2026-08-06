@@ -13,6 +13,9 @@
  */
 package org.apache.iceberg;
 
+import org.apache.iceberg.io.FileAppender;
+import org.apache.iceberg.io.OutputFile;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -20,6 +23,23 @@ public class IcebergLibUtils
 {
     private IcebergLibUtils()
     {}
+
+    /**
+     * Open a writer for a manifest list through Iceberg lib's package-private
+     * {@code ManifestLists}, so a manifest list can be written with entries the caller has
+     * adjusted. The returned appender is Iceberg's own format-version-specific writer.
+     */
+    public static FileAppender<ManifestFile> writeManifestList(
+            int formatVersion,
+            OutputFile manifestListFile,
+            long snapshotId,
+            Long parentSnapshotId,
+            long sequenceNumber,
+            Long firstRowId)
+    {
+        requireNonNull(manifestListFile, "manifestListFile is null");
+        return ManifestLists.write(formatVersion, manifestListFile, snapshotId, parentSnapshotId, sequenceNumber, firstRowId);
+    }
 
     /**
      * Call the method in Iceberg lib's protected class to set explicitly

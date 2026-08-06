@@ -1681,6 +1681,261 @@ Examples:
 
     CALL iceberg.system.rewrite_manifests('schema_name', 'table_name', 0);
 
+Rewrite Table Path
+^^^^^^^^^^^^^^^^^^
+
+This procedure rewrites all Iceberg metadata files (table metadata JSON, manifest list Avro,
+and manifest Avro) to a new storage location by substituting ``source_prefix`` with
+``target_prefix`` in every embedded path string.
+
+The procedure is a **coordinator-only** operation. Data files are **not** written or moved, and
+neither the source table nor its catalog entry is modified. Position delete files are an
+exception: their payloads embed absolute data file paths, so they are rewritten into the staging
+location rather than merely listed for copying. After the procedure completes, the caller copies
+files using the generated ``file-list`` CSV and registers the table at the new location using
+``system.register_table``.
+
+The following arguments are available:
+
+====================== ========== =============== ============================================================
+Argument Name          Required   Type            Description
+====================== ========== =============== ============================================================
+``schema``             Yes        string          Schema of the table to migrate
+
+``table_name``         Yes        string          Name of the table to migrate
+
+``source_prefix``      Yes        string          The existing path prefix to replace. Can be the table
+                                                  directory or a parent directory.
+
+``target_prefix``      Yes        string          The replacement path prefix. Must be at the same directory
+                                                  level as ``source_prefix`` (for example, if ``source_prefix`` is
+                                                  a parent directory, ``target_prefix`` should also be a
+                                                  parent directory, not the table directory)
+
+``start_version``      No         string          First metadata file to rewrite (filename or full path).
+                                                  Iceberg supports two filename formats:
+                                                  sequential (``v2.metadata.json``) and UUID-based
+                                                  (``00002-<uuid>.metadata.json``). Both are accepted.
+                                                  Defaults to the oldest entry in the metadata log.
+
+``end_version``        No         string          Last metadata file to rewrite (filename or full path).
+                                                  Uses the same format rules as ``start_version``.
+                                                  Defaults to the current (newest) metadata version.
+
+``staging_location``   No         string          Directory where rewritten metadata files are physically
+                                                  written. Content inside each file references
+                                                  ``target_prefix``, so files are ready to use once
+                                                  moved from staging to the final target. Defaults to a
+                                                  UUID-named subdirectory under the source table's
+                                                  metadata directory.
+
+``create_file_list``   No         boolean         When ``true`` (default), writes a two-column CSV to
+                                                  ``<staging_location>/file-list``. Each row is
+                                                  ``source_or_staging_path,final_target_path`` and covers
+                                                  every live data file, live delete file, and rewritten
+                                                  metadata file. Files belonging to deleted manifest
+                                                  entries stay in the metadata but are not listed for
+                                                  copying. Set to ``false`` to skip writing the file list.
+====================== ========== =============== ============================================================
+
+.. note::
+
+    ``rewrite_table_path`` does **not** update the catalog. After copying files, register the table
+    at the new location using :ref:`register_table <connector/iceberg:Register Table>`.
+
+.. note::
+
+    **Filesystem support:** The procedure supports any Hadoop-compatible filesystem configured
+    in Presto, including:
+
+    * HDFS: ``hdfs://``
+    * Amazon S3: ``s3://``, ``s3a://``, ``s3n://``
+    * Google Cloud Storage: ``gs://``
+    * Azure Blob Storage: ``wasb://``, ``wasbs://``
+    * Azure Data Lake Storage Gen2: ``abfs://``, ``abfss://``
+    * Local filesystem: ``file:///`` (for testing)
+
+    The ``source_prefix``, ``target_prefix``, and ``staging_location`` can use different
+    filesystem schemes, enabling cross-filesystem migrations (for example, HDFS to S3, S3 to GCS,
+    or cloud storage to local filesystem for testing).
+
+    Example with local filesystem: ::
+
+        CALL iceberg.system.rewrite_table_path(
+            schema           => 'schema_name',
+            table_name       => 'table_name',
+            source_prefix    => 's3a://bucket/warehouse',
+            target_prefix    => 'file:///tmp/warehouse',
+            staging_location => 'file:///tmp/staging'
+        );
+
+.. note::
+
+    **Prefix consistency:** The ``source_prefix`` and ``target_prefix`` must be at the same
+    directory level. If ``source_prefix`` points to a parent directory (for example,
+    ``s3://bucket/warehouse``), then ``target_prefix`` must also point to a parent directory
+    (for example, ``s3://new-bucket/warehouse``), not to the table directory. The procedure will
+    automatically preserve the relative path structure between the prefix and the table location.
+
+    Example with parent directory prefix:
+      - Table location: ``s3://bucket/warehouse/db/my_table``
+      - Source prefix: ``s3://bucket/warehouse``
+      - Target prefix: ``s3://new-bucket/warehouse``
+      - Result: Table will be at ``s3://new-bucket/warehouse/db/my_table``
+
+    Example with table directory prefix:
+      - Table location: ``s3://bucket/warehouse/db/my_table``
+      - Source prefix: ``s3://bucket/warehouse/db/my_table``
+      - Target prefix: ``s3://new-bucket/warehouse/db/my_table``
+      - Result: Table will be at ``s3://new-bucket/warehouse/db/my_table``
+
+.. note::
+
+    Only metadata versions within ``[start_version, end_version]`` are rewritten. Manifest list
+    and manifest Avro files are rewritten for all snapshots reachable from the in-range metadata,
+    because those files are shared across versions and must be internally consistent.
+
+.. note::
+
+    If both ``start_version`` and ``end_version`` are omitted, all metadata versions are rewritten
+    (equivalent to the full-table migration case). Supplying only ``start_version`` rewrites from
+    that version to the current; supplying only ``end_version`` rewrites from the oldest to that
+    version.
+
+.. note::
+
+    **Incremental migration behavior:** When ``start_version`` is provided, only data files
+    created by snapshots in the delta (``end_version.snapshots - start_version.snapshots``)
+    are included in the file list. This enables incremental migrations where data files from
+    ``start_version`` are assumed to already exist at the target location. When ``start_version``
+    is null (full migration), all data files referenced by ``end_version`` are included.
+
+    Each manifest entry has a ``snapshot_id`` field indicating which snapshot created that data
+    file. The procedure filters data files by matching this ``snapshot_id`` against the delta
+    snapshots. All manifest files from ``end_version`` are always rewritten to maintain metadata
+    consistency.
+
+.. note::
+
+    Rewriting a manifest changes its size, so the ``manifest_length`` recorded for each entry in
+    the rewritten manifest lists is recalculated to match. Presto uses this value as a read limit,
+    so a stale length would cause manifest entries to be silently skipped at the target location.
+
+.. note::
+
+    **Delete files:** Equality delete files contain no absolute paths, so they are listed for
+    copying unchanged. Position delete files embed the absolute path of the data file they apply
+    to, so they are rewritten into the staging location with those paths substituted, and the
+    file list points at the staged copy. Position delete files in Avro and Parquet are supported;
+    ORC position delete files cannot be rewritten and the procedure fails with an error.
+
+.. note::
+
+    **Large tables:** The procedure builds the copy plan on the coordinator, so it holds roughly
+    180 bytes of heap per listed file. The file list itself is streamed to
+    ``staging_location`` as it is produced rather than buffered, so its size is not bounded by
+    coordinator heap; on object stores the write goes through the filesystem's local staging
+    directory (``hive.s3.staging-directory`` for S3) before being uploaded, which needs free
+    space for a file of roughly 175 bytes per row. Pass ``create_file_list => false`` if the
+    list is not needed.
+
+Typical workflow::
+
+    -- Step 1: rewrite metadata from source prefix to target prefix
+    CALL catalog_name.system.rewrite_table_path(
+        schema           => 'db',
+        table_name       => 'my_table',
+        source_prefix    => 's3a://bucketOne/prefix/db.db/my_table',
+        target_prefix    => 's3a://bucketTwo/prefix/db.db/my_table',
+        staging_location => 's3a://bucketStaging/my_table'
+    );
+
+    -- Step 2: copy every row from <staging_location>/file-list
+    --         source_or_staging_path -> final_target_path
+
+    -- Step 3: register the table at the new location
+    CALL catalog_name.system.register_table(
+        schema            => 'db',
+        table_name        => 'my_table_new',
+        metadata_location => 's3a://bucketTwo/prefix/db.db/my_table/metadata'
+    );
+
+Examples:
+
+* Rewrite the full table (all metadata versions): ::
+
+    CALL iceberg.system.rewrite_table_path('schema_name', 'table_name',
+        's3a://old-bucket/warehouse', 's3a://new-bucket/warehouse');
+
+* Rewrite with an explicit staging directory and version window: ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix/db.db/my_table',
+        target_prefix    => 's3a://bucketTwo/prefix/db.db/my_table',
+        start_version    => 'v2.metadata.json',
+        end_version      => 'v20.metadata.json',
+        staging_location => 's3a://bucketStaging/my_table'
+    );
+
+* Rewrite without generating a file list: ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        create_file_list => false
+    );
+
+* Rewrite from a specific version to the current (skip old archived versions): ::
+
+    CALL iceberg.system.rewrite_table_path(
+        schema        => 'schema_name',
+        table_name    => 'table_name',
+        source_prefix => 's3a://bucketOne/prefix',
+        target_prefix => 's3a://bucketTwo/prefix',
+        start_version => '00010-575ea024-3812-4e69-ac1e-9c8f284442e2.metadata.json'
+    );
+
+* Incremental migration workflow (migrate table in multiple phases): ::
+
+    -- Phase 1: Full migration to v2 (baseline - includes all data files from v2)
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        end_version      => 'v2.metadata.json',
+        staging_location => 's3a://staging/phase1'
+    );
+    -- Copy files from phase1/file-list and register table at new location
+
+    -- Phase 2: Incremental migration v2->v3 (only delta data files from v3)
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        start_version    => 'v2.metadata.json',
+        end_version      => 'v3.metadata.json',
+        staging_location => 's3a://staging/phase2'
+    );
+    -- Copy only the delta files from phase2/file-list
+
+    -- Phase 3: Incremental migration v3->v4 (only delta data files from v4)
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        start_version    => 'v3.metadata.json',
+        end_version      => 'v4.metadata.json',
+        staging_location => 's3a://staging/phase3'
+    );
+    -- Copy only the delta files from phase3/file-list
+
 .. rubric:: Presto C++ Support
 
 All above procedures are supported in Presto C++.
