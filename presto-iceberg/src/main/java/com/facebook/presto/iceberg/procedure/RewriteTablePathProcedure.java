@@ -68,7 +68,9 @@ import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_FILESYSTEM_ER
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
 import static com.facebook.presto.iceberg.IcebergUtil.getIcebergTable;
 import static java.lang.String.format;
+import static java.util.Collections.emptySet;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toSet;
 import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
 
 /**
@@ -94,8 +96,34 @@ import static org.apache.iceberg.util.LocationUtil.stripTrailingSlash;
  * followed by the current metadata file. Only metadata JSON files whose position falls within
  * {@code [start_version, end_version]} (inclusive) are rewritten.
  *
- * <p>Manifest lists, manifests, and data files are taken from {@code end_version}, so the
- * rewritten metadata is internally consistent at that version.
+ * <p><strong>Incremental migration:</strong> When {@code start_version} is provided, only data
+ * files created by snapshots in the delta ({@code end_version.snapshots - start_version.snapshots})
+ * are included in the file list. This enables incremental migrations where data files from
+ * {@code start_version} are assumed to already exist at the target location. When
+ * {@code start_version} is null (full migration), all data files referenced by {@code end_version}
+ * are included. Manifest lists for all snapshots in {@code end_version} are always rewritten to
+ * maintain metadata consistency.
+ *
+ * <p><strong>Incremental migration assumption:</strong> The snapshot-ID-based delta calculation
+ * assumes {@code start_version}'s snapshots have been faithfully migrated to the target and never
+ * rolled back at source after the {@code start_version} checkpoint. A manifest entry's
+ * {@code snapshot_id} field identifies the snapshot that added the file, not all snapshots that
+ * reference it. If {@code start_version = v2} contains snapshot S1 with files F1, and
+ * {@code end_version = v3} contains {S1, S2} with files {F1, F2}, then only F2 is migrated
+ * (correct if F1 was already migrated). But if {@code start_version} was later rolled back
+ * (creating v4 that drops S1), the assumption breaks — S1's files are skipped even though they
+ * no longer exist at target.
+ *
+ * <p><strong>Incremental migration limitations:</strong>
+ * <ul>
+ *   <li>Compaction/rewrite operations ({@code rewrite_data_files}): new files are included (correct),
+ *       but the old files they replaced are assumed to exist at the target, which may no longer be true
+ *       if those files were deleted at source after the previous migration phase.</li>
+ *   <li>Expired snapshots: if {@code start_version} references a snapshot that was later expired,
+ *       the delta is artificially larger, leading to over-copying.</li>
+ * </ul>
+ * For tables with rollbacks, compaction, or expiration between migration phases, use full migration
+ * ({@code start_version = null}) instead of incremental.
  *
  * <p>Rewrite scope per file type:
  * <ul>
@@ -254,12 +282,34 @@ public class RewriteTablePathProcedure
                         startVersion, endVersion));
             }
 
-            // Only snapshots referenced by end_version should have their manifests and data files
-            // included in the migration (matching Iceberg Spark behavior).
+            // Load metadata for start and end versions to determine which snapshots to process.
+            // Only snapshots referenced by metadata versions in [start, end] should have their
+            // manifests and data files included in the migration (matching Iceberg Spark behavior).
+            TableMetadata startMetadata = startVersion != null
+                    ? readMetadata(allMetadataFiles.get(startIdx), fileIO)
+                    : null;
             TableMetadata endMetadata = readMetadata(allMetadataFiles.get(endIdx), fileIO);
 
-            // Step 1: Rewrite each unique manifest Avro file from end metadata.
+            // Calculate delta snapshots: snapshots in end but not in start.
+            Set<Long> startSnapshotIds = startMetadata != null
+                    ? startMetadata.snapshots().stream().map(Snapshot::snapshotId).collect(toSet())
+                    : emptySet();
+            Set<Snapshot> deltaSnapshots = endMetadata.snapshots().stream()
+                    .filter(s -> !startSnapshotIds.contains(s.snapshotId()))
+                    .collect(toSet());
+
+            // Step 1: Determine which data files to include based on start_version.
+            // When start_version is null (full migration): include ALL data files from end_version.
+            // When start_version is provided (incremental migration): include only data files
+            // created in delta snapshots (end_version.snapshots - start_version.snapshots).
+            Set<Long> deltaSnapshotIds = startVersion != null
+                    ? deltaSnapshots.stream().map(Snapshot::snapshotId).collect(toSet())
+                    : emptySet(); // Empty set signals: include all data files
+
+            // Step 2: Rewrite each unique manifest Avro file from end metadata.
             // Manifests are shared across snapshots so we deduplicate by path.
+            // We iterate over all snapshots in endMetadata to ensure we have all manifests,
+            // but data file filtering depends on whether start_version was provided.
             // Data file pairs are collected during the manifest rewrite (single I/O pass).
             Set<String> rewrittenManifests = new HashSet<>();
             for (Snapshot snapshot : endMetadata.snapshots()) {
@@ -280,15 +330,15 @@ public class RewriteTablePathProcedure
                         // Rewrite manifest and collect data/delete file pairs in a single pass
                         rewriteAvroFile(manifest.path(), nestedRecordField, MANIFEST_FILE_PATH_FIELD,
                                 fileIO, normalizedSource, normalizedTarget, manifestStagingPath,
-                                fileList);
+                                fileList, deltaSnapshotIds);
                         fileList.add(new String[] {manifestStagingPath, manifestFinalPath});
                     }
                 }
             }
 
-            // Step 2: Rewrite manifest list Avro files for all snapshots in end metadata.
-            // Manifest lists are tied to specific snapshots and must all be present for the
-            // end version to be valid.
+            // Step 3: Rewrite manifest list Avro files from all snapshots in end metadata
+            // (not just delta), because manifest lists are tied to specific snapshots and must
+            // all be present for the end version to be valid.
             Set<String> rewrittenManifestLists = new HashSet<>();
             for (Snapshot snapshot : endMetadata.snapshots()) {
                 String manifestListPath = snapshot.manifestListLocation();
@@ -300,14 +350,14 @@ public class RewriteTablePathProcedure
                     }
                     String manifestListStagingPath = manifestListPath.replace(normalizedSource, normalizedStaging);
                     String manifestListFinalPath = manifestListPath.replace(normalizedSource, normalizedTarget);
-                    // Manifest lists don't contain data files, so pass null for the collection param
+                    // Manifest lists don't contain data files, so pass null for collection params
                     rewriteAvroFile(manifestListPath, null, MANIFEST_LIST_PATH_FIELD, fileIO,
-                            normalizedSource, normalizedTarget, manifestListStagingPath, null);
+                            normalizedSource, normalizedTarget, manifestListStagingPath, null, null);
                     fileList.add(new String[] {manifestListStagingPath, manifestListFinalPath});
                 }
             }
 
-            // Step 3: Add statistics files (.puffin/.stats) to the file list.
+            // Step 4: Add statistics files (.puffin/.stats) to the file list.
             // The metadata JSON rewrite will update the paths inside the JSON, but the actual
             // stats files need to be included in the copy manifest.
             // Note: Statistics files are rarely generated in practice (requires explicit ANALYZE
@@ -322,12 +372,12 @@ public class RewriteTablePathProcedure
                 }
             }
 
-            // Step 4: Rewrite metadata JSON files in the version range [start_version, end_version].
+            // Step 5: Rewrite metadata JSON files in the version range [start_version, end_version].
             for (int i = startIdx; i <= endIdx; i++) {
                 rewriteMetadataJson(allMetadataFiles.get(i), fileIO, normalizedSource, normalizedTarget, normalizedStaging, fileList);
             }
 
-            // Step 5: Optionally write the file list to <staging_location>/file-list.
+            // Step 6: Optionally write the file list to <staging_location>/file-list.
             if (createFileList) {
                 writeCsvFileList(fileList, normalizedStaging + "/" + FILE_LIST_NAME, fileIO);
             }
@@ -373,6 +423,9 @@ public class RewriteTablePathProcedure
      *                     (e.g. manifest list files where {@code manifest_path} is top-level)
      * @param collectDataFiles if non-null, data file paths are collected into this list during
      *                         the rewrite pass (manifest files only)
+     * @param deltaSnapshotIds if non-null and non-empty, only data files from these snapshots
+     *                         are collected (incremental mode); if null or empty, all data files
+     *                         are collected (full migration mode)
      */
     private static void rewriteAvroFile(
             String sourcePath,
@@ -382,7 +435,8 @@ public class RewriteTablePathProcedure
             String sourcePrefix,
             String targetPrefix,
             String writePath,
-            List<String[]> collectDataFiles)
+            List<String[]> collectDataFiles,
+            Set<Long> deltaSnapshotIds)
     {
         byte[] sourceBytes = readAllBytes(fileIO.newInputFile(sourcePath));
 
@@ -413,24 +467,57 @@ public class RewriteTablePathProcedure
                 // Collect file paths from both data and delete manifests
                 boolean shouldCollectFiles = collectDataFiles != null &&
                         MANIFEST_DATA_FILE_FIELD.equals(nestedRecord);
+                boolean isIncrementalMode = deltaSnapshotIds != null && !deltaSnapshotIds.isEmpty();
+
+                // Cache snapshot_id field lookup (avoids linear schema scan per record)
+                Schema.Field snapshotIdField = isIncrementalMode && shouldCollectFiles
+                        ? schema.getField("snapshot_id")
+                        : null;
 
                 for (GenericRecord record : reader) {
                     // Collect data/delete file pairs if requested (manifest files only)
                     if (shouldCollectFiles) {
-                        // Check if the nested record field exists in the schema
-                        Schema.Field nestedField = schema.getField(nestedRecord);
-                        if (nestedField != null) {
-                            GenericRecord fileRecord = (GenericRecord) record.get(nestedField.pos());
-                            if (fileRecord != null) {
-                                Schema.Field filePathField = fileRecord.getSchema().getField(MANIFEST_FILE_PATH_FIELD);
-                                if (filePathField != null) {
-                                    Object filePathValue = fileRecord.get(filePathField.pos());
-                                    if (filePathValue != null) {
-                                        String filePath = filePathValue.toString();
-                                        collectDataFiles.add(new String[] {
-                                                filePath,
-                                                filePath.replace(sourcePrefix, targetPrefix)
-                                        });
+                        boolean shouldIncludeInFileList = true;
+
+                        // Filter by snapshot_id in incremental mode
+                        if (isIncrementalMode) {
+                            if (snapshotIdField == null) {
+                                // In incremental mode, don't add entries with no snapshot_id field to file list
+                                shouldIncludeInFileList = false;
+                            }
+                            else {
+                                Object snapshotIdValue = record.get(snapshotIdField.pos());
+                                if (snapshotIdValue == null) {
+                                    // In incremental mode, don't add entries with null snapshot_id to file list
+                                    shouldIncludeInFileList = false;
+                                }
+                                else {
+                                    Long snapshotId = (Long) snapshotIdValue;
+                                    if (!deltaSnapshotIds.contains(snapshotId)) {
+                                        // Don't add files from snapshots before start_version to file list
+                                        shouldIncludeInFileList = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Extract data/delete file path and add to collection if it passes the filter
+                        if (shouldIncludeInFileList) {
+                            // Check if the nested record field exists in the schema
+                            Schema.Field nestedField = schema.getField(nestedRecord);
+                            if (nestedField != null) {
+                                GenericRecord fileRecord = (GenericRecord) record.get(nestedField.pos());
+                                if (fileRecord != null) {
+                                    Schema.Field filePathField = fileRecord.getSchema().getField(MANIFEST_FILE_PATH_FIELD);
+                                    if (filePathField != null) {
+                                        Object filePathValue = fileRecord.get(filePathField.pos());
+                                        if (filePathValue != null) {
+                                            String filePath = filePathValue.toString();
+                                            collectDataFiles.add(new String[] {
+                                                    filePath,
+                                                    filePath.replace(sourcePrefix, targetPrefix)
+                                            });
+                                        }
                                     }
                                 }
                             }

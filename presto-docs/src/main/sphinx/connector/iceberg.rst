@@ -1798,6 +1798,19 @@ Argument Name          Required   Type            Description
     that version to the current; supplying only ``end_version`` rewrites from the oldest to that
     version.
 
+.. note::
+
+    **Incremental migration behavior:** When ``start_version`` is provided, only data files
+    created by snapshots in the delta (``end_version.snapshots - start_version.snapshots``)
+    are included in the file list. This enables incremental migrations where data files from
+    ``start_version`` are assumed to already exist at the target location. When ``start_version``
+    is null (full migration), all data files referenced by ``end_version`` are included.
+
+    Each manifest entry has a ``snapshot_id`` field indicating which snapshot created that data
+    file. The procedure filters data files by matching this ``snapshot_id`` against the delta
+    snapshots. All manifest files from ``end_version`` are always rewritten to maintain metadata
+    consistency.
+
 Typical workflow::
 
     -- Step 1: rewrite metadata from source prefix to target prefix
@@ -1857,6 +1870,43 @@ Examples:
         target_prefix => 's3a://bucketTwo/prefix',
         start_version => '00010-575ea024-3812-4e69-ac1e-9c8f284442e2.metadata.json'
     );
+
+* Incremental migration workflow (migrate table in multiple phases): ::
+
+    -- Phase 1: Full migration to v2 (baseline - includes all data files from v2)
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        end_version      => 'v2.metadata.json',
+        staging_location => 's3a://staging/phase1'
+    );
+    -- Copy files from phase1/file-list and register table at new location
+
+    -- Phase 2: Incremental migration v2->v3 (only delta data files from v3)
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        start_version    => 'v2.metadata.json',
+        end_version      => 'v3.metadata.json',
+        staging_location => 's3a://staging/phase2'
+    );
+    -- Copy only the delta files from phase2/file-list
+
+    -- Phase 3: Incremental migration v3->v4 (only delta data files from v4)
+    CALL iceberg.system.rewrite_table_path(
+        schema           => 'schema_name',
+        table_name       => 'table_name',
+        source_prefix    => 's3a://bucketOne/prefix',
+        target_prefix    => 's3a://bucketTwo/prefix',
+        start_version    => 'v3.metadata.json',
+        end_version      => 'v4.metadata.json',
+        staging_location => 's3a://staging/phase3'
+    );
+    -- Copy only the delta files from phase3/file-list
 
 .. rubric:: Presto C++ Support
 
