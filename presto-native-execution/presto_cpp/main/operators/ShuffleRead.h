@@ -15,6 +15,7 @@
 
 #include "velox/core/PlanNode.h"
 #include "velox/exec/Exchange.h"
+#include "velox/exec/InMemoryExchangeClient.h"
 #include "velox/exec/Operator.h"
 
 namespace facebook::presto::operators {
@@ -97,7 +98,7 @@ class ShuffleRead : public velox::exec::Exchange {
       int32_t operatorId,
       velox::exec::DriverCtx* ctx,
       const std::shared_ptr<const ShuffleReadNode>& shuffleReadNode,
-      std::shared_ptr<velox::exec::ExchangeClient> exchangeClient);
+      std::shared_ptr<velox::exec::InMemoryExchangeClient> exchangeClient);
 
   velox::RowVectorPtr getOutput() override;
 
@@ -134,6 +135,6 @@ class ShuffleReadTranslator : public velox::exec::Operator::PlanNodeTranslator {
       velox::exec::DriverCtx* ctx,
       int32_t id,
       const velox::core::PlanNodePtr& node,
-      std::shared_ptr<velox::exec::ExchangeClient> exchangeClient) override;
+      std::shared_ptr<velox::exec::InMemoryExchangeClient> exchangeClient) override;
 };
 } // namespace facebook::presto::operators
