@@ -47,7 +47,7 @@ public class MergeJoinForSortedInputOptimizer
     private final Metadata metadata;
     private final boolean nativeExecution;
     private final boolean prestoOnSpark;
-    private boolean isEnabledForTesting;
+    private final ThreadLocal<Boolean> isEnabledForTesting = ThreadLocal.withInitial(() -> false);
 
     public MergeJoinForSortedInputOptimizer(Metadata metadata, boolean nativeExecution, boolean prestoOnSpark)
     {
@@ -59,13 +59,13 @@ public class MergeJoinForSortedInputOptimizer
     @Override
     public void setEnabledForTesting(boolean isSet)
     {
-        isEnabledForTesting = isSet;
+        isEnabledForTesting.set(isSet);
     }
 
     @Override
     public boolean isEnabled(Session session)
     {
-        return isEnabledForTesting || nativeExecution && (isGroupedExecutionEnabled(session) || prestoOnSpark) && preferMergeJoinForSortedInputs(session) && !isSingleNodeExecutionEnabled(session);
+        return isEnabledForTesting.get() || nativeExecution && (isGroupedExecutionEnabled(session) || prestoOnSpark) && preferMergeJoinForSortedInputs(session) && !isSingleNodeExecutionEnabled(session);
     }
 
     @Override

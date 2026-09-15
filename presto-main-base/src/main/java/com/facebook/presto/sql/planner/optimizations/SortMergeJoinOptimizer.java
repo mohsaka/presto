@@ -44,7 +44,7 @@ public class SortMergeJoinOptimizer
 {
     private final Metadata metadata;
     private final boolean nativeExecution;
-    private boolean isEnabledForTesting;
+    private final ThreadLocal<Boolean> isEnabledForTesting = ThreadLocal.withInitial(() -> false);
 
     public SortMergeJoinOptimizer(Metadata metadata, boolean nativeExecution)
     {
@@ -55,14 +55,14 @@ public class SortMergeJoinOptimizer
     @Override
     public void setEnabledForTesting(boolean isSet)
     {
-        isEnabledForTesting = isSet;
+        isEnabledForTesting.set(isSet);
     }
 
     @Override
     public boolean isEnabled(Session session)
     {
         // TODO: Consider group execution and single node execution.
-        return isEnabledForTesting || preferSortMergeJoin(session);
+        return isEnabledForTesting.get() || preferSortMergeJoin(session);
     }
 
     @Override
