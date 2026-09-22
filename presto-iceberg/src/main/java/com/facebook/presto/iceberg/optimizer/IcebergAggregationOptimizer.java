@@ -71,7 +71,6 @@ import java.util.function.Predicate;
 
 import static com.facebook.presto.iceberg.ExpressionConverter.toIcebergExpression;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.isAggregatePushDownEnabled;
-import static com.facebook.presto.iceberg.IcebergSessionProperties.isPushdownFilterEnabled;
 import static com.facebook.presto.iceberg.IcebergUtil.getNativeValue;
 import static com.facebook.presto.iceberg.IcebergUtil.getNonMetadataColumnConstraints;
 import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
@@ -96,7 +95,7 @@ public class IcebergAggregationOptimizer
     @Override
     public PlanNode optimize(PlanNode maxSubplan, ConnectorSession session, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
     {
-        if (!isAggregatePushDownEnabled(session) || isPushdownFilterEnabled(session)) {
+        if (!isAggregatePushDownEnabled(session)) {
             return maxSubplan;
         }
         Optimizer optimizer = new Optimizer(session, idAllocator, icebergTransactionManager, functionResolution);
@@ -139,8 +138,9 @@ public class IcebergAggregationOptimizer
             IcebergTableHandle tableHandle = (IcebergTableHandle) tableScan.getTable().getConnectorHandle();
             Table table = IcebergUtil.getIcebergTable(getConnectorMetadata(tableScan.getTable()),
                     connectorSession, tableHandle.getSchemaTableName());
-            TupleDomain<IcebergColumnHandle> predicate = getNonMetadataColumnConstraints(((IcebergTableLayoutHandle) tableScan.getTable().getLayout().get())
-                    .getValidPredicate());
+            TupleDomain<IcebergColumnHandle> predicate = tableScan.getTable().getLayout()
+                    .map(layout -> getNonMetadataColumnConstraints(((IcebergTableLayoutHandle) layout).getValidPredicate()))
+                    .orElse(TupleDomain.all());
 
             if (!isReducible(table, node)) {
                 return context.defaultRewrite(node);
