@@ -41,6 +41,7 @@ import org.apache.iceberg.expressions.Expression;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -64,6 +65,7 @@ import static org.apache.iceberg.expressions.Expressions.and;
 import static org.apache.iceberg.expressions.Expressions.equal;
 import static org.apache.iceberg.expressions.Expressions.greaterThan;
 import static org.apache.iceberg.expressions.Expressions.greaterThanOrEqual;
+import static org.apache.iceberg.expressions.Expressions.in;
 import static org.apache.iceberg.expressions.Expressions.isNull;
 import static org.apache.iceberg.expressions.Expressions.lessThan;
 import static org.apache.iceberg.expressions.Expressions.lessThanOrEqual;
@@ -131,6 +133,24 @@ public final class ExpressionConverter
             List<Range> orderedRanges = ((SortedRangeSet) domainValues).getOrderedRanges();
             expression = firstNonNull(expression, alwaysFalse());
 
+            // Collect single-point equality ranges into a list so we can emit a single
+            // in() predicate (depth-1 expression tree) rather than left-folding N or() calls
+            // into a chain of depth N, which overflows ExpressionVisitors' recursive visit().
+            List<Object> equalityValues = new ArrayList<>();
+            for (Range range : orderedRanges) {
+                Marker low = range.getLow();
+                Marker high = range.getHigh();
+                if (low.getBound() == EXACTLY && high.getBound() == EXACTLY
+                        && getIcebergLiteralValue(type, low).equals(getIcebergLiteralValue(type, high))) {
+                    equalityValues.add(getIcebergLiteralValue(type, low));
+                }
+            }
+            if (!equalityValues.isEmpty()) {
+                expression = equalityValues.size() == 1
+                        ? or(expression, equal(columnName, equalityValues.get(0)))
+                        : or(expression, in(columnName, equalityValues));
+            }
+
             for (Range range : orderedRanges) {
                 Marker low = range.getLow();
                 Marker high = range.getHigh();
@@ -139,9 +159,9 @@ public final class ExpressionConverter
 
                 // case col <> 'val' is represented as (col < 'val' or col > 'val')
                 if (lowBound == EXACTLY && highBound == EXACTLY) {
-                    // case ==
                     if (getIcebergLiteralValue(type, low).equals(getIcebergLiteralValue(type, high))) {
-                        expression = or(expression, equal(columnName, getIcebergLiteralValue(type, low)));
+                        // already handled above in the equality batch
+                        continue;
                     }
                     else { // case between
                         Expression between = and(
