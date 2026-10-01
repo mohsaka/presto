@@ -17,12 +17,14 @@ import com.facebook.airlift.http.server.testing.TestingHttpServer;
 import com.facebook.presto.iceberg.AbstractTestIcebergIdentifierCharacters;
 import com.facebook.presto.iceberg.IcebergQueryRunner;
 import com.facebook.presto.testing.QueryRunner;
+import com.google.common.collect.ImmutableMap;
 import org.assertj.core.util.Files;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.iceberg.CatalogType.REST;
@@ -70,10 +72,14 @@ public class TestIcebergRestIdentifierCharacters
     protected QueryRunner createQueryRunner()
             throws Exception
     {
+        Map<String, String> connectorProperties = ImmutableMap.<String, String>builder()
+                .putAll(restConnectorProperties(serverUri))
+                .put("iceberg.rest.nested.namespace.enabled", "false")
+                .build();
         return IcebergQueryRunner.builder()
                 .setCatalogType(REST)
                 .setCreateTpchTables(false)
-                .setExtraConnectorProperties(restConnectorProperties(serverUri))
+                .setExtraConnectorProperties(connectorProperties)
                 .setDataDirectory(Optional.of(warehouseLocation.toPath()))
                 .build()
                 .getQueryRunner();
